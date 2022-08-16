@@ -1,0 +1,31 @@
+# pip install -r requirements.txt
+
+fastapi
+uvicorn
+pymysql
+passlib
+bcrypt
+sqlalchemy
+python-jose
+python-multipart
+h5py==2.10.0
+keras==2.9.0
+Keras-Preprocessing==1.1.2
+mysqlclient
+numpy==1.23.1
+pandas
+scikit-image==0.18.1
+scikit-learn==0.22.1
+scipy==1.8.1
+streamlit
+tensorboard==2.9.1
+tensorboard-data-server==0.6.1
+tensorboard-plugin-wit==1.8.1
+tensorflow==2.9.1
+tensorflow-estimator==2.9.0
+tensorflow-io-gcs-filesystem==0.26.0
+xhtml2pdf
+
+## pip install streamlit
+## pip install networkx
+## pip3 install --disable-pip-version-check --no-cache-dir tensorflow

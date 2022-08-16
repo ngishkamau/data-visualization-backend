@@ -1,0 +1,2 @@
+model_checkpoint_path: "C:\\Users\\zspp\\Desktop\\classification\\0924\\model/gan/model.ckpt-15000"
+all_model_checkpoint_paths: "C:\\Users\\zspp\\Desktop\\classification\\0924\\model/gan/model.ckpt-15000"
