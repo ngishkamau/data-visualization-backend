@@ -8,14 +8,14 @@ bcrypt
 sqlalchemy
 python-jose
 python-multipart
-h5py==2.10.0
+h5py
 keras==2.9.0
 Keras-Preprocessing==1.1.2
 mysqlclient
 numpy==1.23.1
 pandas
 scikit-image==0.18.1
-scikit-learn==0.22.1
+scikit-learn
 scipy==1.8.1
 streamlit
 tensorboard==2.9.1
