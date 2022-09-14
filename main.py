@@ -21,13 +21,15 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 120
 
 origins = [
-    "http://localhost.tiangolo.com",
-    "https://localhost.tiangolo.com",
-    "http://localhost",
-    "http://localhost:8080",
-    "http://localhost:3000",
+    "*"
 ]
 
+    # "http://localhost.tiangolo.com",
+    # "https://localhost.tiangolo.com",
+    # "http://localhost",
+    # "http://localhost:8080",
+    # "http://localhost:3000",
+    
 app = FastAPI()
 
 app.add_middleware(
