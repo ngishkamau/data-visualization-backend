@@ -32,32 +32,40 @@ do
     esac
 done
 
-if [ !"$host" ]
+echo $host
+echo $port
+
+# shellcheck disable=SC2236
+if [[ ! -n "$host" ]]
 then
     echo 'Must be a server ip address'
     # shellcheck disable=SC2242
     exit -1
 fi
 
-if [ !"$port" ]
+# shellcheck disable=SC2236
+if [[ ! -n "$port" ]]
 then
     echo 'Must be a port'
     # shellcheck disable=SC2242
     exit -1
 fi
 
-if [ !"$image" ]
+# shellcheck disable=SC2236
+if [[ ! -n "$image" ]]
 then
     image='flwr_pytorch_client'
 fi
 
-if [ !"$container" ]
+# shellcheck disable=SC2236
+if [[ ! -n "$container" ]]
 then
     container='flwr_pytorch_client'
 fi
 
 docker build --build-arg IP=$host --build-arg PORT=$port --force-rm -t $image .
-if [ !"$volume" ]
+# shellcheck disable=SC2236
+if [[ ! -n "$volume" ]]
 then
     docker run --name=$container -d $image
 else
