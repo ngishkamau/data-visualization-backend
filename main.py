@@ -6,13 +6,17 @@ from typing import List
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.responses import Response, JSONResponse
 from jose import JWTError, jwt
 from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
+import docker
 import hashing
 import models
 import schemas
+from docker.errors import BuildError, APIError, ContainerError, ImageNotFound
+from utils import get_free_port, get_host_ip
 from database import SessionLocal, db_engine
 from get_models import get_model_1, get_model_2, get_model_3
 
@@ -31,6 +35,8 @@ origins = [
     # "http://localhost:3000",
     
 app = FastAPI()
+# TODO: Change if deployed with docker
+docker_cli = docker.from_env()
 
 app.add_middleware(
     CORSMiddleware,
@@ -253,7 +259,7 @@ async def file_request_history(db: Session = Depends(get_db), current_user: sche
 
 @app.delete("/file_access_remove_decline/{file_request_id}")
 async def file_access_remvove_decline(file_request_id: int,db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
-    db.query(models.FileRequest).filter(models.FileRequest.id == file_request_id).delete();
+    db.query(models.FileRequest).filter(models.FileRequest.id == file_request_id).delete()
     db.commit()
     return "File Request Removed"
 
@@ -268,4 +274,33 @@ async def file_access_remvove_decline(file_request_id: int, request: schemas.Fil
     db.commit()
     return "Updated"
 
-
+@app.post('/start/training/server')
+def start_training_server():
+    server: tuple = ()
+    try:
+        server = docker_cli.images.build(path=os.getcwd() + '/flwr_docker/server', tag='server', forcerm=True)
+    except BuildError:
+        print('Build error')
+        return Response(status_code=500)
+    except APIError:
+        print('Build image http error')
+        return Response(status_code=500)
+    port = get_free_port()
+    try:
+        docker_cli.containers.run(image=server[0].id, name='server', detach=True, ports={8080: port})
+    except ContainerError:
+        print('Container error')
+        return Response(status_code=500)
+    except ImageNotFound:
+        print('Image not found error')
+        return Response(status_code=500)
+    except APIError:
+        print('Run container http error')
+        return Response(status_code=500)
+    ip = get_host_ip()
+    print(ip, port)
+    return JSONResponse(content={
+        'ip': ip,
+        'port': port,
+        'link': 'xxx'
+    }, status_code=200)
