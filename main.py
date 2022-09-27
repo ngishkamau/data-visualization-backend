@@ -6,7 +6,7 @@ from typing import List
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from fastapi.responses import Response, JSONResponse
+from fastapi.responses import Response, JSONResponse, FileResponse
 from jose import JWTError, jwt
 from sqlalchemy import and_
 from sqlalchemy.orm import Session
@@ -16,7 +16,8 @@ import hashing
 import models
 import schemas
 from docker.errors import BuildError, APIError, ContainerError, ImageNotFound
-from utils import get_free_port, get_host_ip
+from starlette.background import BackgroundTask
+from utils import get_free_port, get_host_ip, file2zip
 from database import SessionLocal, db_engine
 from get_models import get_model_1, get_model_2, get_model_3
 
@@ -286,8 +287,10 @@ def start_training_server():
         print('Build image http error')
         return Response(status_code=500)
     port = get_free_port()
+    id = ''
     try:
-        docker_cli.containers.run(image=server[0].id, name='server', detach=True, ports={8080: port})
+        container = docker_cli.containers.run(image=server[0].id, name='server', detach=True, ports={8080: port})
+        id = container.id
     except ContainerError:
         print('Container error')
         return Response(status_code=500)
@@ -299,8 +302,26 @@ def start_training_server():
         return Response(status_code=500)
     ip = get_host_ip()
     print(ip, port)
+    file2zip(os.getcwd() + '/downloads/test.zip', [os.getcwd() + '/flwr_docker/run.sh', os.getcwd() + '/flwr_docker/run.ps1', os.getcwd() + '/flwr_docker/client/Dockerfile', os.getcwd() + '/flwr_docker/client/client.py'])
     return JSONResponse(content={
         'ip': ip,
         'port': port,
-        'link': 'xxx'
+        'id': id,
+        'link': '/download/test.zip'
     }, status_code=200)
+
+@app.get('/download/{file}')
+async def download(file):
+    # return FileResponse(os.getcwd() + '/downloads/' + file, filename=file, background=BackgroundTask(lambda: os.remove(os.getcwd() + '/downloads/' + file)))
+    return FileResponse(os.getcwd() + '/downloads/' + file, filename=file)
+
+@app.get('/training/status/{id}')
+def training_status(id):
+    status = ''
+    try:
+        con = docker_cli.containers.get(id)
+        status = con.attrs.get('State')['Status']
+    except APIError:
+        print('Container not found with id {0}'.format(id))
+        return Response(status_code=400)
+    return JSONResponse(content={'status': status})

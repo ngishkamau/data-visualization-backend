@@ -1,6 +1,8 @@
 # -*- coding:utf-8 -*-
 
+import os
 import socket
+import zipfile
 from contextlib import closing
 
 
@@ -19,3 +21,10 @@ def get_free_port():
         s.bind(('', 0))
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         return s.getsockname()[1]
+
+
+def file2zip(zip_name: str, file_lists: list):
+    with zipfile.ZipFile(zip_name, mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
+        for fn in file_lists:
+            parent_path, name = os.path.split(fn)
+            zf.write(fn, arcname=name)
