@@ -40,7 +40,7 @@ app = FastAPI()
 # TODO: Change if deployed with docker
 docker_cli = docker.DockerClient(base_url='unix://var/run/docker.sock')
 
-if os.path.exists(os.getcwd() + '/downloads'):
+if not os.path.exists(os.getcwd() + '/downloads'):
     os.makedirs(os.getcwd() + '/downloads')
 
 app.add_middleware(
