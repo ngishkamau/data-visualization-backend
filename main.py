@@ -1,3 +1,4 @@
+import os
 import csv
 from datetime import datetime, timedelta
 from operator import mod
@@ -38,6 +39,9 @@ origins = [
 app = FastAPI()
 # TODO: Change if deployed with docker
 docker_cli = docker.from_env()
+
+if os.paht.exists(os.getcwd() + '/downloads'):
+    os.makedirs(os.getcwd() + '/downloads')
 
 app.add_middleware(
     CORSMiddleware,
