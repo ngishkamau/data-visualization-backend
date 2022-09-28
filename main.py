@@ -1,3 +1,4 @@
+import os
 import csv
 from datetime import datetime, timedelta
 from operator import mod
@@ -6,13 +7,18 @@ from typing import List
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.responses import Response, JSONResponse, FileResponse
 from jose import JWTError, jwt
 from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
+import docker
 import hashing
 import models
 import schemas
+from docker.errors import BuildError, APIError, ContainerError, ImageNotFound
+from starlette.background import BackgroundTask
+from utils import get_free_port, get_host_ip, file2zip
 from database import SessionLocal, db_engine
 from get_models import get_model_1, get_model_2, get_model_3
 
@@ -31,6 +37,11 @@ origins = [
     # "http://localhost:3000",
     
 app = FastAPI()
+# TODO: Change if deployed with docker
+docker_cli = docker.from_env()
+
+if os.paht.exists(os.getcwd() + '/downloads'):
+    os.makedirs(os.getcwd() + '/downloads')
 
 app.add_middleware(
     CORSMiddleware,
@@ -253,7 +264,7 @@ async def file_request_history(db: Session = Depends(get_db), current_user: sche
 
 @app.delete("/file_access_remove_decline/{file_request_id}")
 async def file_access_remvove_decline(file_request_id: int,db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
-    db.query(models.FileRequest).filter(models.FileRequest.id == file_request_id).delete();
+    db.query(models.FileRequest).filter(models.FileRequest.id == file_request_id).delete()
     db.commit()
     return "File Request Removed"
 
@@ -268,4 +279,53 @@ async def file_access_remvove_decline(file_request_id: int, request: schemas.Fil
     db.commit()
     return "Updated"
 
+@app.post('/start/training/server')
+def start_training_server():
+    server: tuple = ()
+    try:
+        server = docker_cli.images.build(path=os.getcwd() + '/flwr_docker/server', tag='server', forcerm=True)
+    except BuildError:
+        print('Build error')
+        return Response(status_code=500)
+    except APIError:
+        print('Build image http error')
+        return Response(status_code=500)
+    port = get_free_port()
+    id = ''
+    try:
+        container = docker_cli.containers.run(image=server[0].id, name='server', detach=True, ports={8080: port})
+        id = container.id
+    except ContainerError:
+        print('Container error')
+        return Response(status_code=500)
+    except ImageNotFound:
+        print('Image not found error')
+        return Response(status_code=500)
+    except APIError:
+        print('Run container http error')
+        return Response(status_code=500)
+    ip = get_host_ip()
+    print(ip, port)
+    file2zip(os.getcwd() + '/downloads/test.zip', [os.getcwd() + '/flwr_docker/run.sh', os.getcwd() + '/flwr_docker/run.ps1', os.getcwd() + '/flwr_docker/client/Dockerfile', os.getcwd() + '/flwr_docker/client/client.py'])
+    return JSONResponse(content={
+        'ip': ip,
+        'port': port,
+        'id': id,
+        'link': '/download/test.zip'
+    }, status_code=200)
 
+@app.get('/download/{file}')
+async def download(file):
+    # return FileResponse(os.getcwd() + '/downloads/' + file, filename=file, background=BackgroundTask(lambda: os.remove(os.getcwd() + '/downloads/' + file)))
+    return FileResponse(os.getcwd() + '/downloads/' + file, filename=file)
+
+@app.get('/training/status/{id}')
+def training_status(id):
+    status = ''
+    try:
+        con = docker_cli.containers.get(id)
+        status = con.attrs.get('State')['Status']
+    except APIError:
+        print('Container not found with id {0}'.format(id))
+        return Response(status_code=400)
+    return JSONResponse(content={'status': status})
