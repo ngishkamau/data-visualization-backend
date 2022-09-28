@@ -38,7 +38,7 @@ origins = [
     
 app = FastAPI()
 # TODO: Change if deployed with docker
-docker_cli = docker.DockerClient(base_url='unix://var/run/docker.sock')
+docker_cli = docker.DockerClient(base_url='unix:///var/run/docker.sock')
 
 if not os.path.exists(os.getcwd() + '/downloads'):
     os.makedirs(os.getcwd() + '/downloads')

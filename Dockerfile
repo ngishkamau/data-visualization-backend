@@ -28,7 +28,7 @@
 # py3-setuptools
 # RUN mkdir -p /app
 
-FROM python:3.8.14-slim-bullseye
+FROM python:3.8.14-slim-buster
 
 WORKDIR /app
 
@@ -37,10 +37,14 @@ COPY . /app
 # RUN apt-get -y install default-libmysqlclient-dev
 # RUN apt-get install python-dev libfreetype6-dev
 RUN cd /app \
+    && apt update -y \
+    && apt install -y build-essential mariadb-server libmariadb-dev \
     && pip3 install --upgrade pip setuptools wheel \
     && python3 -m pip install --upgrade pip \
     && pip3 install -r requirements.txt
 
 # ENTRYPOINT [ "python3" ]
+
+EXPOSE 8000
 
 CMD [ "uvicorn", "--host", "0.0.0.0", "--port", "8000" , "main:app"]
