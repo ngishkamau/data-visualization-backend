@@ -16,6 +16,7 @@ import docker
 import hashing
 import models
 import schemas
+from time import time
 from docker.errors import BuildError, APIError, ContainerError, ImageNotFound
 from starlette.background import BackgroundTask
 from utils import get_free_port, get_host_ip, file2zip
@@ -282,8 +283,9 @@ async def file_access_remvove_decline(file_request_id: int, request: schemas.Fil
 @app.post('/start/training/server')
 def start_training_server():
     server: tuple = ()
+    name = str(hash(time()))
     try:
-        server = docker_cli.images.build(path=os.getcwd() + '/flwr_docker/server', tag='server', forcerm=True)
+        server = docker_cli.images.build(path=os.getcwd() + '/flwr_docker/server', tag=name, forcerm=True)
     except BuildError:
         print('Build error')
         return Response(status_code=500)
@@ -293,7 +295,7 @@ def start_training_server():
     port = get_free_port()
     id = ''
     try:
-        container = docker_cli.containers.run(image=server[0].id, name='server', detach=True, ports={8080: port})
+        container = docker_cli.containers.run(image=server[0].id, name=name, detach=True, ports={8080: port})
         id = container.id
     except ContainerError:
         print('Container error')
@@ -306,17 +308,19 @@ def start_training_server():
         return Response(status_code=500)
     ip = get_host_ip()
     print(ip, port)
-    file2zip(os.getcwd() + '/downloads/test.zip', [os.getcwd() + '/flwr_docker/run.sh', os.getcwd() + '/flwr_docker/run.ps1', os.getcwd() + '/flwr_docker/client/Dockerfile', os.getcwd() + '/flwr_docker/client/client.py'])
+    file2zip(os.getcwd() + '/downloads/{0}.zip'.format(name), [os.getcwd() + '/flwr_docker/run.sh', os.getcwd() + '/flwr_docker/run.ps1', os.getcwd() + '/flwr_docker/client/Dockerfile', os.getcwd() + '/flwr_docker/client/client.py'])
     return JSONResponse(content={
         'ip': ip,
         'port': port,
         'id': id,
-        'link': '/download/test.zip'
+        'link': '/download/{0}.zip'.format(name)
     }, status_code=200)
 
 @app.get('/download/{file}')
 async def download(file):
     # return FileResponse(os.getcwd() + '/downloads/' + file, filename=file, background=BackgroundTask(lambda: os.remove(os.getcwd() + '/downloads/' + file)))
+    if not os.path.isfile(os.getcwd() + '/downloads/' + file):
+        return Response(status_code=400, content='No such file')
     return FileResponse(os.getcwd() + '/downloads/' + file, filename=file)
 
 @app.get('/training/status/{id}')
