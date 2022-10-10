@@ -44,6 +44,9 @@ docker_cli = docker.DockerClient(base_url='unix:///var/run/docker.sock')
 if not os.path.exists(os.getcwd() + '/downloads'):
     os.makedirs(os.getcwd() + '/downloads')
 
+if not os.path.exists(os.getcwd() + '/upload'):
+    os.makedirs(os.getcwd() + '/upload')
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -97,7 +100,7 @@ def create_user(request: schemas.User,db: Session = Depends(get_db)):
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
-    os.mkdir(f"../{new_user.id}_stored_files/")
+    os.mkdir(os.getcwd() + "/upload/{new_user.id}_stored_files/")
     return new_user
 
 @app.get('/user/{id}', response_model=schemas.ShowUser)
@@ -133,7 +136,7 @@ from io import BytesIO
 
 import pandas as pd
 
-
+# Upload file or data
 @app.post("/upload/")
 async def upload_file(file: UploadFile = File(),db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
     fs = await file.read()
@@ -151,17 +154,20 @@ async def upload_file(file: UploadFile = File(),db: Session = Depends(get_db), c
     db.refresh(new_file)
 
 
-    file_location = os.path.join(f"../{current_user['id']}_stored_files/", file_name)
+    # file_location = os.path.join(f"../{current_user['id']}_stored_files/", file_name)
+    file_location = os.path.join(os.getcwd() + "/upload/{current_user['id']}_stored_files/", file_name)
     with open(file_location, "wb+") as file_object:
         file_object.write(fs)
 
     return new_file
 
+# Get all data
 @app.get("/file-collection", response_model=List[schemas.ShowFileCollection])
 async def get_file_collection(db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
     files = db.query(models.FileCollection).all()
     return files
 
+# Get data by user id
 @app.get("/file-collection/{user_id}", response_model=List[schemas.ShowFileCollection])
 async def get_file_collection_by_id(user_id: int, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
     files = db.query(models.FileCollection).filter(models.FileCollection.user_id == user_id).all()

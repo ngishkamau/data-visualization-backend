@@ -28,7 +28,7 @@
 # py3-setuptools
 # RUN mkdir -p /app
 
-FROM python:3.8.14-slim-buster
+FROM python:3.9.14-slim-buster
 
 WORKDIR /app
 

@@ -7,7 +7,6 @@ from sqlalchemy.orm import relationship
 
 from database import Base
 
-
 class FileCollection(Base):
     __tablename__ = 'file_collection'
 
