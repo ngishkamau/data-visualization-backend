@@ -32,7 +32,6 @@ class Client(fl.server.SimpleClientManager):
             f.write(ip + '\n')
         return super().register(client)
 
-
 # Start Flower server
 fl.server.start_server(
     server_address="0.0.0.0:8080",

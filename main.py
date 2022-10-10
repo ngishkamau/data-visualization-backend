@@ -350,7 +350,7 @@ def training_connections(id):
         'server': server_location,
         'client': []
     }
-    with open(os.getcwd() + 'clients', 'r') as f:
+    with open(os.getcwd() + '/clients', 'r') as f:
         ips = f.read().split('\n')
         for elem in ips:
             resp['client'].append(requests.get(ip_url + elem.strip()).json())
