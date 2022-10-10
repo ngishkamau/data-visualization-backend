@@ -341,8 +341,8 @@ def training_status(id):
         return Response(status_code=400)
     return JSONResponse(content={'status': status})
 
-@app.post('/training/connections')
-def training_connections():
+@app.get('/training/connections/{id}')
+def training_connections(id):
     global ip_url
     ip_url = 'http://ip-api.com/json/'
     server_location = requests.get(ip_url + get_host_ip()).json()
