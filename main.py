@@ -343,11 +343,18 @@ def training_status(id):
 
 @app.post('/training/connections')
 def training_connections():
-    resp = []
+    global ip_url
+    ip_url = 'http://ip-api.com/json/'
+    server_location = requests.get(ip_url + get_host_ip()).json()
+    resp = {
+        'server': server_location,
+        'client': []
+    }
     with open(os.getcwd() + 'clients', 'r') as f:
         ips = f.read().split('\n')
         for elem in ips:
-            pass 
+            resp['client'].append(requests.get(ip_url + elem.strip()).json())
+    return JSONResponse(resp)
 
 @app.post('/upload/dataset')
 async def uploade_dataset(request: schemas.DatasetUpload, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):

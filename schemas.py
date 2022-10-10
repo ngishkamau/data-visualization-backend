@@ -63,5 +63,5 @@ class DatasetUpload(BaseModel):
     desc: str
     affil: str
     file_type: str
-    raw_file: UploadFile = File(media_type='multipart/form-data')
+    raw_file: UploadFile = File()
     datatype: str
