@@ -5,7 +5,6 @@ import csv
 from datetime import datetime, timedelta
 from operator import mod
 from typing import List
-from django.shortcuts import HttpResponse
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,6 +18,7 @@ import docker
 import hashing
 import models
 import schemas
+import requests
 from time import time
 from docker.errors import BuildError, APIError, ContainerError, ImageNotFound
 from starlette.background import BackgroundTask
