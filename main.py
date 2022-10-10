@@ -377,5 +377,5 @@ async def uploade_dataset(request: schemas.DatasetUpload, db: Session = Depends(
 
 @app.get('/datasets')
 def get_datasets(db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
-    sets = db.query(models.Dataset).filter(owner_id=current_user['id'])
-    return list(sets)
+    sets = db.query(models.Dataset).filter(owner_id=current_user['id']).all()
+    return sets
