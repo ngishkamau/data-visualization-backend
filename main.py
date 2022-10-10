@@ -1,8 +1,11 @@
+from distutils.core import run_setup
+from fileinput import filename
 import os
 import csv
 from datetime import datetime, timedelta
 from operator import mod
 from typing import List
+from django.shortcuts import HttpResponse
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -100,7 +103,7 @@ def create_user(request: schemas.User,db: Session = Depends(get_db)):
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
-    os.mkdir(os.getcwd() + "/upload/{new_user.id}_stored_files/")
+    os.mkdir(os.getcwd() + f"/upload/{new_user.id}_stored_files/")
     return new_user
 
 @app.get('/user/{id}', response_model=schemas.ShowUser)
@@ -136,7 +139,6 @@ from io import BytesIO
 
 import pandas as pd
 
-# Upload file or data
 @app.post("/upload/")
 async def upload_file(file: UploadFile = File(),db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
     fs = await file.read()
@@ -155,13 +157,12 @@ async def upload_file(file: UploadFile = File(),db: Session = Depends(get_db), c
 
 
     # file_location = os.path.join(f"../{current_user['id']}_stored_files/", file_name)
-    file_location = os.path.join(os.getcwd() + "/upload/{current_user['id']}_stored_files/", file_name)
+    file_location = os.path.join(os.getcwd() + f"/upload/{current_user['id']}_stored_files/", file_name)
     with open(file_location, "wb+") as file_object:
         file_object.write(fs)
 
     return new_file
 
-# Get all data
 @app.get("/file-collection", response_model=List[schemas.ShowFileCollection])
 async def get_file_collection(db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
     files = db.query(models.FileCollection).all()
@@ -301,7 +302,7 @@ def start_training_server():
     port = get_free_port()
     id = ''
     try:
-        container = docker_cli.containers.run(image=server[0].id, name=name, detach=True, ports={8080: port})
+        container = docker_cli.containers.run(image=server[0].id, name=name, detach=True, ports={8080: port}, volumes={os.getcwd() + 'clients': {'bind': '/server/clients', 'mode': 'rw'}})
         id = container.id
     except ContainerError:
         print('Container error')
@@ -339,3 +340,35 @@ def training_status(id):
         print('Container not found with id {0}'.format(id))
         return Response(status_code=400)
     return JSONResponse(content={'status': status})
+
+@app.post('/training/connections')
+def training_connections():
+    resp = []
+    with open(os.getcwd() + 'clients', 'r') as f:
+        ips = f.read().split('\n')
+        for elem in ips:
+            pass 
+
+@app.post('/upload/dataset')
+async def uploade_dataset(request: schemas.DatasetUpload, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+    fs = await request.raw_file.read()
+    new_file = models.FileCollection(filename=request.raw_file.filename, filesize=f'{len(fs)/1000} kb', user_id=current_user["id"])
+    db.new(new_file)
+    db.commit()
+    db.refresh(new_file)
+
+    file_location = os.path.join(os.getcwd() + f"/upload/{current_user['id']}_stored_files/", request.raw_file.filename)
+    with open(file_location, 'wb+') as file_obj:
+        file_obj.write(fs)
+
+    new_data = models.Dataset(dataset=request.dataset, owner_id=current_user["id"], description=request.desc, affiliation=request.affil, filetype=request.file_type, filepath=new_file, datatype=request.datatype)
+    db.new(new_data)
+    db.commit()
+    db.refresh(new_data)
+
+    return new_data
+
+@app.get('/datasets')
+def get_datasets(db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+    sets = db.query(models.Dataset).filter(owner_id=current_user['id'])
+    return list(sets)

@@ -1,8 +1,9 @@
 from datetime import date, datetime
+from multiprocessing.forkserver import ForkServer
 # from turtle import update
 from xmlrpc.client import DateTime
 
-from sqlalchemy import Column, ForeignKey, Integer, String
+from sqlalchemy import Column, ForeignKey, Integer, String, Enum
 from sqlalchemy.orm import relationship
 
 from database import Base
@@ -74,3 +75,15 @@ class RigRequest(Base):
     sender = Column(Integer)
     reciever = Column(Integer)
     status = Column(Integer)
+
+class Dataset(Base):
+    __tablename__ = 'datasets'
+
+    id = Column(Integer, primary_key=True, index=True)
+    dataset = Column(String(100))
+    owner_id = Column(Integer, ForeignKey('users.id'))
+    description = Column(String(255))
+    affiliation = Column(String(255))
+    filetype = Column(Enum('image', 'audio', 'video', 'text', 'csv'))
+    filepath = Column(Integer, ForeignKey('file_collection.id'))
+    datatype = Column(Enum('CV', 'NLP', 'ASR'))

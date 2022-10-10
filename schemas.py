@@ -1,6 +1,7 @@
 from typing import List, Optional
 
-from pydantic import BaseModel
+from fastapi import File, UploadFile
+from pydantic import BaseModel, EmailStr
 
 
 class FileCollection(BaseModel):
@@ -14,13 +15,13 @@ class FileCollection(BaseModel):
 class User(BaseModel):
     id: int
     name: str
-    email: str
+    email: EmailStr
     password: str
 
 class ShowUser(BaseModel):
     id: int
     name: str
-    email: str
+    email: EmailStr
     file_collection : List[FileCollection] =[]
     class Config():
         orm_mode = True
@@ -56,3 +57,11 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     email: Optional[str] = None
+
+class DatasetUpload(BaseModel):
+    dataset: str
+    desc: str
+    affil: str
+    file_type: str
+    raw_file: UploadFile = File(media_type='multipart/form-data')
+    datatype: str
