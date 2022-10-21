@@ -8,7 +8,7 @@ COPY server.py /server
 
 RUN apt update -y \
     && pip install flwr torch torchvision tqdm \
-    && cd /server \ 
+    && cd /server \
     && touch clients
 
 EXPOSE 8080

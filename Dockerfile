@@ -47,6 +47,4 @@ RUN cd /app \
 
 EXPOSE 8000
 
-VOLUME [ "/app/upload" ]
-
 CMD [ "uvicorn", "--host", "0.0.0.0", "--port", "8000", "main:app"]

@@ -345,7 +345,7 @@ def start_training_server(request: schemas.FLModel, db: Session = Depends(get_db
     }, status_code=200)
 
 @app.get('/download/{file}')
-async def download(file, current_user: schemas.User = Depends(get_current_user)):
+async def download(file):
     # return FileResponse(os.getcwd() + '/downloads/' + file, filename=file, background=BackgroundTask(lambda: os.remove(os.getcwd() + '/downloads/' + file)))
     if not os.path.isfile(os.getcwd() + '/downloads/' + file):
         return Response(status_code=400, content='No such file')
@@ -400,9 +400,22 @@ async def uploade_dataset(dataset: str = Form(), desc: str = Form(), affil: str 
 
     return new_data
 
-# Get all the dataset for current users
+# Get all the dataset for current user
 @app.get('/datasets')
 def get_datasets(db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
     print(current_user)
     sets = db.query(models.Dataset).filter(models.Dataset.owner_id==current_user['id']).all()
     return sets
+
+# Get all the fl training for current user
+@app.get('/trainings')
+def get_trainings(db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+    sets = db.query(models.LearningModel).filter(models.LearningModel.owner_id==current_user['id']).all()
+    return sets
+
+# Delete fl training including container, image and data storaged in database
+@app.delete('/training/delete/{name}')
+def delete_training(name, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+    db.query(models.LearningModel).filter(models.LearningModel.image_name==name).delete()
+    db.commit()
+    return 'Training is deleted'
