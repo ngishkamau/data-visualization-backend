@@ -1,18 +1,22 @@
+from cgitb import handler
 from distutils.core import run_setup
 from fileinput import filename
+import logging
 import os
 import csv
 from datetime import datetime, timedelta
 from operator import mod
 from typing import List
+import MySQLdb
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.responses import Response, JSONResponse, FileResponse
 from jose import JWTError, jwt
 from sqlalchemy import and_
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError, DataError
 
 import docker
 import hashing
@@ -21,7 +25,7 @@ import schemas
 import requests
 from time import time
 from docker.errors import BuildError, APIError, ContainerError, ImageNotFound
-from starlette.background import BackgroundTask
+# from starlette.background import BackgroundTask
 from utils import get_free_port, get_host_ip, file2zip
 from database import SessionLocal, db_engine
 from get_models import get_model_1, get_model_2, get_model_3
@@ -127,7 +131,7 @@ def login(request: schemas.Login, db: Session = Depends(get_db)):
                             detail=f"Incorrect password")
 
     access_token = create_access_token(data={"sub": user.email, "id": user.id, "name": user.name})
-    return {"access_token": access_token, "token_type": "bearer", "user": {"id": user.id, "name": user.name }}
+    return {"access_token": access_token, "token_type": "Bearer", "user": {"id": user.id, "name": user.name }}
 
 @app.get('/users')
 def getData(db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
@@ -138,6 +142,12 @@ import os
 from io import BytesIO
 
 import pandas as pd
+
+# TODO: Comment when deploying
+@app.on_event("startup")
+async def startup_event():
+    logger = logging.getLogger("uvicorn.access")
+    logger.setLevel(logging.DEBUG)
 
 @app.post("/upload/")
 async def upload_file(file: UploadFile = File(),db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
@@ -288,9 +298,9 @@ async def file_access_remvove_decline(file_request_id: int, request: schemas.Fil
     return "Updated"
 
 @app.post('/start/training/server')
-def start_training_server():
+def start_training_server(current_user: schemas.User = Depends(get_current_user)):
     server: tuple = ()
-    name = str(hash(time()))
+    name = str(hash(current_user['name'] + '_' + str(time())))
     try:
         server = docker_cli.images.build(path=os.getcwd() + '/flwr_docker/server', tag=name, forcerm=True)
     except BuildError:
@@ -302,7 +312,7 @@ def start_training_server():
     port = get_free_port()
     id = ''
     try:
-        container = docker_cli.containers.run(image=server[0].id, name=name, detach=True, ports={8080: port}, volumes={os.getcwd() + 'clients': {'bind': '/server/clients', 'mode': 'rw'}})
+        container = docker_cli.containers.run(image=server[0].id, name=name, detach=True, ports={8080: port}, volumes={os.getcwd() + '/clients': {'bind': '/server/clients', 'mode': 'rw'}})
         id = container.id
     except ContainerError:
         print('Container error')
@@ -324,14 +334,14 @@ def start_training_server():
     }, status_code=200)
 
 @app.get('/download/{file}')
-async def download(file):
+async def download(file, current_user: schemas.User = Depends(get_current_user)):
     # return FileResponse(os.getcwd() + '/downloads/' + file, filename=file, background=BackgroundTask(lambda: os.remove(os.getcwd() + '/downloads/' + file)))
     if not os.path.isfile(os.getcwd() + '/downloads/' + file):
         return Response(status_code=400, content='No such file')
     return FileResponse(os.getcwd() + '/downloads/' + file, filename=file)
 
 @app.get('/training/status/{id}')
-def training_status(id):
+def training_status(id, current_user: schemas.User = Depends(get_current_user)):
     status = ''
     try:
         con = docker_cli.containers.get(id)
@@ -341,8 +351,9 @@ def training_status(id):
         return Response(status_code=400)
     return JSONResponse(content={'status': status})
 
+# Access to clients' ip addresses
 @app.get('/training/connections/{id}')
-def training_connections(id):
+def training_connections(id, current_user: schemas.User = Depends(get_current_user)):
     global ip_url
     ip_url = 'http://ip-api.com/json/'
     server_location = requests.get(ip_url + get_host_ip()).json()
@@ -356,26 +367,31 @@ def training_connections(id):
             resp['client'].append(requests.get(ip_url + elem.strip()).json())
     return JSONResponse(resp)
 
+# Upload new dataset
 @app.post('/upload/dataset')
-async def uploade_dataset(request: schemas.DatasetUpload, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
-    fs = await request.raw_file.read()
-    new_file = models.FileCollection(filename=request.raw_file.filename, filesize=f'{len(fs)/1000} kb', user_id=current_user["id"])
-    db.new(new_file)
+async def uploade_dataset(dataset: str = Form(), desc: str = Form(), affil: str = Form(), file_type: str = Form(), raw_file: UploadFile = File(), datatype: str = Form(), db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+    fs = await raw_file.read()
+    new_file = models.FileCollection(filename=raw_file.filename, filesize=f'{len(fs)/1000} kb', user_id=current_user["id"])
+    # db.new(new_file)
+    db.add(new_file)
     db.commit()
     db.refresh(new_file)
 
-    file_location = os.path.join(os.getcwd() + f"/upload/{current_user['id']}_stored_files/", request.raw_file.filename)
+    file_location = os.path.join(os.getcwd() + f"/upload/{current_user['id']}_stored_files/", raw_file.filename)
     with open(file_location, 'wb+') as file_obj:
         file_obj.write(fs)
 
-    new_data = models.Dataset(dataset=request.dataset, owner_id=current_user["id"], description=request.desc, affiliation=request.affil, filetype=request.file_type, filepath=new_file, datatype=request.datatype)
-    db.new(new_data)
+    new_data = models.Dataset(dataset=dataset, owner_id=current_user["id"], description=desc, affiliation=affil, filetype=file_type.strip().lower(), filepath=new_file.id, datatype=datatype.strip().upper())
+    # db.new(new_data)
+    db.add(new_data)
     db.commit()
     db.refresh(new_data)
 
     return new_data
 
+# Get all the dataset for current users
 @app.get('/datasets')
 def get_datasets(db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
-    sets = db.query(models.Dataset).filter(owner_id=current_user['id']).all()
+    print(current_user)
+    sets = db.query(models.Dataset).filter(models.Dataset.owner_id==current_user['id']).all()
     return sets

@@ -12,4 +12,6 @@ RUN apt update -y \
 
 EXPOSE 8080
 
+VOLUME [ "/server/clients" ]
+
 CMD ["python3", "/server/server.py"]

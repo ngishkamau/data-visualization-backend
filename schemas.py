@@ -1,11 +1,11 @@
-from typing import List, Optional
+from ast import For
+from typing import List, Optional, Union
 
-from fastapi import File, UploadFile
 from pydantic import BaseModel, EmailStr
 
 
 class FileCollection(BaseModel):
-    id: int
+    id: Union[int, None] = None
     filename: str
     filesize: str
 
@@ -13,7 +13,7 @@ class FileCollection(BaseModel):
         orm_mode = True
 
 class User(BaseModel):
-    id: int
+    id: Union[int, None] = None
     name: str
     email: EmailStr
     password: str
@@ -57,11 +57,3 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     email: Optional[str] = None
-
-class DatasetUpload(BaseModel):
-    dataset: str
-    desc: str
-    affil: str
-    file_type: str
-    raw_file: UploadFile = File()
-    datatype: str
