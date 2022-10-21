@@ -25,7 +25,7 @@ import models
 import schemas
 import requests
 from time import time
-from docker.errors import BuildError, APIError, ContainerError, ImageNotFound
+from docker.errors import BuildError, APIError, ContainerError, ImageNotFound, NotFound
 # from starlette.background import BackgroundTask
 from utils import get_free_port, get_host_ip, file2zip
 from database import SessionLocal, db_engine
@@ -308,10 +308,10 @@ def start_training_server(request: schemas.FLModel, db: Session = Depends(get_db
     try:
         server = docker_cli.images.build(path=os.getcwd() + '/flwr_docker/server', tag=name, forcerm=True)
     except BuildError as e:
-        print('Build error:', e)
+        logging.getLogger('uvicorn.error').error(e)
         return Response(status_code=500)
     except APIError as e:
-        print('Build image http error:', e)
+        logging.getLogger('uvicorn.error').error(e)
         return Response(status_code=500)
     port = get_free_port()
     id = ''
@@ -321,13 +321,13 @@ def start_training_server(request: schemas.FLModel, db: Session = Depends(get_db
         container = docker_cli.containers.run(image=server[0].id, name=name, detach=True, ports={8080: port}, volumes={file_path: {'bind': '/server/clients', 'mode': 'rw'}})
         id = container.id
     except ContainerError as e:
-        print('Container error:', e)
+        logging.getLogger('uvicorn.error').error(e)
         return Response(status_code=500)
     except ImageNotFound as e:
-        print('Image not found error:', e)
+        logging.getLogger('uvicorn.error').error(e)
         return Response(status_code=500)
     except APIError as e:
-        print('Run container http error:', e)
+        logging.getLogger('uvicorn.error').error(e)
         return Response(status_code=500)
     ip = get_host_ip()
     print(ip, port)
@@ -378,6 +378,31 @@ def training_connections(id, current_user: schemas.User = Depends(get_current_us
             resp['client'].append(requests.get(ip_url + elem.strip()).json())
     return JSONResponse(resp)
 
+# Delete fl training including container, image and data storaged in database
+@app.delete('/training/delete/{name}')
+def delete_training(name, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+    try:
+        con = docker_cli.containers.get(name)
+        if con.attrs['State']['Running'] is True:
+            # Stop container
+            con.pause()
+        con.remove()
+    except NotFound as e:
+        logging.getLogger('uvicorn.error').error(e)
+    try:
+        docker_cli.images.remove(name)
+    except ImageNotFound as e:
+        logging.getLogger('uvicorn.error').error(e)
+    db.query(models.LearningModel).filter(models.LearningModel.image_name==name).delete()
+    db.commit()
+    return 'Training is deleted'
+
+# Get all the fl training for current user
+@app.get('/trainings')
+def get_trainings(db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+    sets = db.query(models.LearningModel).filter(models.LearningModel.owner_id==current_user['id']).all()
+    return sets
+
 # Upload new dataset
 @app.post('/upload/dataset')
 async def uploade_dataset(dataset: str = Form(), desc: str = Form(), affil: str = Form(), file_type: str = Form(), raw_file: UploadFile = File(), datatype: str = Form(), db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
@@ -407,15 +432,13 @@ def get_datasets(db: Session = Depends(get_db), current_user: schemas.ShowUser =
     sets = db.query(models.Dataset).filter(models.Dataset.owner_id==current_user['id']).all()
     return sets
 
-# Get all the fl training for current user
-@app.get('/trainings')
-def get_trainings(db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
-    sets = db.query(models.LearningModel).filter(models.LearningModel.owner_id==current_user['id']).all()
+# Get all datasets
+@app.get('/datasets/all')
+def get_all_datasets(db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+    sets = db.query(models.Dataset).all()
     return sets
 
-# Delete fl training including container, image and data storaged in database
-@app.delete('/training/delete/{name}')
-def delete_training(name, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
-    db.query(models.LearningModel).filter(models.LearningModel.image_name==name).delete()
-    db.commit()
-    return 'Training is deleted'
+# Delete dataset
+@app.delete('/dataset/delete/{id}')
+def delete_dataset(id, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+    pass 
