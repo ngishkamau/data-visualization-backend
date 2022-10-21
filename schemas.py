@@ -57,3 +57,10 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     email: Optional[str] = None
+
+class FLModel(BaseModel):
+    task: str
+    epochs: int
+    model: str
+    dataset: str
+    appr: str

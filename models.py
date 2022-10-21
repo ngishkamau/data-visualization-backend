@@ -1,3 +1,4 @@
+from ast import Str
 from datetime import date, datetime
 from multiprocessing.forkserver import ForkServer
 # from turtle import update
@@ -87,3 +88,17 @@ class Dataset(Base):
     filetype = Column(Enum('image', 'audio', 'video', 'text', 'csv'))
     filepath = Column(Integer, ForeignKey('file_collection.id'))
     datatype = Column(Enum('CV', 'NLP', 'ASR'))
+
+class LearningModel(Base):
+    __tablename__ = 'learning_models'
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_id = Column(Integer, ForeignKey('users.id'))
+    task = Column(String(100))
+    epochs = Column(Integer)
+    model = Column(Enum('CNN', 'ResNet18', 'ResNet', '50', 'VGG19'))
+    dataset = Column(Enum('MINIST', 'CIFAR10', 'CFIFAR100'))
+    aggregation_approach = Column(Enum('FedSGD', 'FedAVG'))
+    image_name = Column(String(100))
+    container_id = Column(String(100))
+    link = Column(String(100))

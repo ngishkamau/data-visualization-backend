@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.responses import Response, JSONResponse, FileResponse
 from jose import JWTError, jwt
+from sklearn import datasets
 from sqlalchemy import and_
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError, DataError
@@ -53,6 +54,9 @@ if not os.path.exists(os.getcwd() + '/downloads'):
 
 if not os.path.exists(os.getcwd() + '/upload'):
     os.makedirs(os.getcwd() + '/upload')
+
+if not os.path.exists(os.getcwd() + '/clients'):
+    os.makedirs(os.getcwd() + '/clients')
 
 app.add_middleware(
     CORSMiddleware,
@@ -298,39 +302,46 @@ async def file_access_remvove_decline(file_request_id: int, request: schemas.Fil
     return "Updated"
 
 @app.post('/start/training/server')
-def start_training_server(current_user: schemas.User = Depends(get_current_user)):
+def start_training_server(request: schemas.FLModel, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
     server: tuple = ()
-    name = str(hash(current_user['name'] + '_' + str(time())))
+    name = current_user['name'].strip().lower() + '_' + request.task.strip().lower() + '_' + str(hash(time()))
     try:
         server = docker_cli.images.build(path=os.getcwd() + '/flwr_docker/server', tag=name, forcerm=True)
-    except BuildError:
-        print('Build error')
+    except BuildError as e:
+        print('Build error:', e)
         return Response(status_code=500)
-    except APIError:
-        print('Build image http error')
+    except APIError as e:
+        print('Build image http error:', e)
         return Response(status_code=500)
     port = get_free_port()
     id = ''
     try:
-        container = docker_cli.containers.run(image=server[0].id, name=name, detach=True, ports={8080: port}, volumes={os.getcwd() + '/clients': {'bind': '/server/clients', 'mode': 'rw'}})
+        file_path = os.getcwd() + '/clients/' + name
+        os.mknod(file_path)
+        container = docker_cli.containers.run(image=server[0].id, name=name, detach=True, ports={8080: port}, volumes={file_path: {'bind': '/server/clients', 'mode': 'rw'}})
         id = container.id
-    except ContainerError:
-        print('Container error')
+    except ContainerError as e:
+        print('Container error:', e)
         return Response(status_code=500)
-    except ImageNotFound:
-        print('Image not found error')
+    except ImageNotFound as e:
+        print('Image not found error:', e)
         return Response(status_code=500)
-    except APIError:
-        print('Run container http error')
+    except APIError as e:
+        print('Run container http error:', e)
         return Response(status_code=500)
     ip = get_host_ip()
     print(ip, port)
-    file2zip(os.getcwd() + '/downloads/{0}.zip'.format(name), [os.getcwd() + '/flwr_docker/run.sh', os.getcwd() + '/flwr_docker/run.ps1', os.getcwd() + '/flwr_docker/client/Dockerfile', os.getcwd() + '/flwr_docker/client/client.py'])
+    file2zip(os.getcwd() + f'/downloads/{name}.zip', [os.getcwd() + '/flwr_docker/run.sh', os.getcwd() + '/flwr_docker/run.ps1', os.getcwd() + '/flwr_docker/client/Dockerfile', os.getcwd() + '/flwr_docker/client/client.py'])
+    new_fl = models.LearningModel(owner_id=current_user['id'], task=request.task.strip(), epochs=request.epochs, model=request.model.strip(), dataset=request.dataset.strip(), aggregation_approach=request.appr.strip(), image_name=name, container_id=id, link=f'/download/{name}.zip')
+    db.add(new_fl)
+    db.commit()
+    db.refresh(new_fl)
+    print(new_fl)
     return JSONResponse(content={
         'ip': ip,
         'port': port,
         'id': id,
-        'link': '/download/{0}.zip'.format(name)
+        'link': f'/download/{name}.zip'
     }, status_code=200)
 
 @app.get('/download/{file}')
@@ -361,7 +372,7 @@ def training_connections(id, current_user: schemas.User = Depends(get_current_us
         'server': server_location,
         'client': []
     }
-    with open(os.getcwd() + '/clients', 'r') as f:
+    with open(os.getcwd() + '/clients/' + id, 'r') as f:
         ips = f.read().split('\n')
         for elem in ips:
             resp['client'].append(requests.get(ip_url + elem.strip()).json())

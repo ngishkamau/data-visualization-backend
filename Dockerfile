@@ -41,15 +41,12 @@ RUN cd /app \
     && apt install -y build-essential mariadb-server libmariadb-dev \
     && pip3 install --upgrade pip setuptools wheel \
     && python3 -m pip install --upgrade pip \
-    && pip3 install -r requirements.txt \
-    && tensorboard --logdir ./flwr_logs --port 8090
+    && pip3 install -r requirements.txt
 
 # ENTRYPOINT [ "python3" ]
 
 EXPOSE 8000
-EXPOSE 8090
 
-VOLUME [ "/app/downloads" ]
 VOLUME [ "/app/upload" ]
 
 CMD [ "uvicorn", "--host", "0.0.0.0", "--port", "8000", "main:app"]
