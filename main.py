@@ -6,6 +6,7 @@ import os
 import csv
 from datetime import datetime, timedelta
 from operator import mod
+from pyexpat import model
 from typing import List
 import MySQLdb
 
@@ -441,4 +442,17 @@ def get_all_datasets(db: Session = Depends(get_db), current_user: schemas.ShowUs
 # Delete dataset
 @app.delete('/dataset/delete/{id}')
 def delete_dataset(id, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
-    pass 
+    uid = current_user['id']
+    data = db.query(models.Dataset).filter(models.Dataset.id==id).first()
+    fid = data.filepath
+    f = db.query(models.FileCollection).filter(models.FileCollection.id==fid).first()
+    filename = f.filename
+    filepath = os.getcwd() + f'/upload/{uid}_stored_files/' + filename
+    # Delete dataset
+    db.query(models.Dataset).filter(models.Dataset.id==id).delete()
+    db.commit()
+    # Delete file
+    db.query(models.FileCollection).filter(models.FileCollection.id==fid).delete()
+    db.commit()
+    os.remove(filepath)
+    return "Deleted dataset"
