@@ -370,14 +370,27 @@ def training_connections(id, current_user: schemas.User = Depends(get_current_us
     global ip_url
     ip_url = 'http://ip-api.com/json/'
     server_location = requests.get(ip_url + get_host_ip()).json()
+    sev_ret = {'status': server_location['status']}
+    if server_location['status'] == 'success':
+        sev_ret['country'] = server_location['country']
+        sev_ret['city'] = server_location['city']
+    else:
+        sev_ret['message'] = server_location['message']
     resp = {
-        'server': server_location,
+        'server': sev_ret,
         'client': []
     }
     with open(os.getcwd() + '/clients/' + id, 'r') as f:
         ips = f.read().split('\n')
         for elem in ips:
-            resp['client'].append(requests.get(ip_url + elem.strip()).json())
+            cli_ret = requests.get(ip_url + elem.strip()).json()
+            ret = {'status': cli_ret['status']}
+            if cli_ret['status'] == 'success':
+                ret['country'] = cli_ret['country']
+                ret['city'] = cli_ret['city']
+            else:
+                ret['message'] = cli_ret['message']
+            resp['client'].append(ret)
     return JSONResponse(resp)
 
 # Delete fl training including container, image and data storaged in database
