@@ -1,6 +1,7 @@
 from cgitb import handler
 from distutils.core import run_setup
 from fileinput import filename
+from genericpath import isfile
 import logging
 import os
 import csv
@@ -429,7 +430,6 @@ async def uploade_dataset(dataset: str = Form(), desc: str = Form(), affil: str 
 # Get all the dataset for current user
 @app.get('/datasets')
 def get_datasets(db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
-    print(current_user)
     sets = db.query(models.Dataset).filter(models.Dataset.owner_id==current_user['id']).all()
     return sets
 
@@ -439,13 +439,31 @@ def get_all_datasets(db: Session = Depends(get_db), current_user: schemas.ShowUs
     sets = db.query(models.Dataset).all()
     return sets
 
+# Get dataset by id
+@app.get('/dataset/{id}')
+def get_dataset_by_id(id, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+    data = db.query(models.Dataset).filter(models.Dataset.id==id).first()
+    if data is None:
+        return Response(status_code=400, content='No Existed Dataset')
+    ret = data.__dict__
+    del ret['filepath']
+    uid = ret['owner_id']
+    del ret['owner_id']
+    user = db.query(models.User).filter(models.User.id==uid).first()
+    ret['username'] = user.name
+    return ret
+
 # Delete dataset
 @app.delete('/dataset/delete/{id}')
 def delete_dataset(id, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
     uid = current_user['id']
     data = db.query(models.Dataset).filter(models.Dataset.id==id).first()
+    if data is None:
+        return Response(status_code=400, content='No Existed Dataset')
     fid = data.filepath
     f = db.query(models.FileCollection).filter(models.FileCollection.id==fid).first()
+    if f is None:
+        return Response(status_code=400, content='No Such File')
     filename = f.filename
     filepath = os.getcwd() + f'/upload/{uid}_stored_files/' + filename
     # Delete dataset
@@ -454,5 +472,6 @@ def delete_dataset(id, db: Session = Depends(get_db), current_user: schemas.Show
     # Delete file
     db.query(models.FileCollection).filter(models.FileCollection.id==fid).delete()
     db.commit()
-    os.remove(filepath)
+    if os.path.isfile(filepath):
+        os.remove(filepath)
     return "Deleted dataset"
