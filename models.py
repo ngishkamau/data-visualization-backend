@@ -94,6 +94,7 @@ class LearningModel(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     owner_id = Column(Integer, ForeignKey('users.id'))
+    job_id = Column(String(100))
     task = Column(String(100))
     epochs = Column(Integer)
     model = Column(Enum('CNN', 'ResNet18', 'ResNet', '50', 'VGG19'))
@@ -101,4 +102,6 @@ class LearningModel(Base):
     aggregation_approach = Column(Enum('FedSGD', 'FedAVG'))
     image_name = Column(String(100))
     container_id = Column(String(100))
+    address = Column(String(50))
+    port = Column(Integer)
     link = Column(String(100))

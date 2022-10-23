@@ -21,6 +21,7 @@ from sqlalchemy import and_
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
+import uuid
 import docker
 import hashing
 import models
@@ -304,14 +305,15 @@ async def file_access_remvove_decline(file_request_id: int, request: schemas.Fil
 def start_training_server(request: schemas.FLModel, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
     server: tuple = ()
     name = current_user['name'].strip().lower() + '_' + request.task.strip().lower() + '_' + str(hash(time()))
+    job_id = str(uuid.uuid5(uuid.NAMESPACE_URL, name))
     try:
         server = docker_cli.images.build(path=os.getcwd() + '/flwr_docker/server', tag=name, forcerm=True)
     except BuildError as e:
         logging.getLogger('uvicorn.error').error(e)
-        return Response(status_code=500)
+        return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
     except APIError as e:
         logging.getLogger('uvicorn.error').error(e)
-        return Response(status_code=500)
+        return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
     port = get_free_port()
     id = ''
     try:
@@ -321,35 +323,37 @@ def start_training_server(request: schemas.FLModel, db: Session = Depends(get_db
         id = container.id
     except ContainerError as e:
         logging.getLogger('uvicorn.error').error(e)
-        return Response(status_code=500)
+        return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
     except ImageNotFound as e:
         logging.getLogger('uvicorn.error').error(e)
-        return Response(status_code=500)
+        return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
     except APIError as e:
         logging.getLogger('uvicorn.error').error(e)
-        return Response(status_code=500)
+        return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
     ip = get_host_ip()
     print(ip, port)
     file2zip(os.getcwd() + f'/downloads/{current_user["id"]}_stored_files/{name}.zip', [os.getcwd() + '/flwr_docker/run.sh', os.getcwd() + '/flwr_docker/run.ps1', os.getcwd() + '/flwr_docker/client/Dockerfile', os.getcwd() + '/flwr_docker/client/client.py'])
     link = f'/download/{current_user["id"]}/{name}.zip'
-    new_fl = models.LearningModel(owner_id=current_user['id'], task=request.task.strip(), epochs=request.epochs, model=request.model.strip(), dataset=request.dataset.strip(), aggregation_approach=request.appr.strip(), image_name=name, container_id=id, link=link)
+    new_fl = models.LearningModel(owner_id=current_user['id'], job_id=job_id, task=request.task.strip(), epochs=request.epochs, model=request.model.strip(), dataset=request.dataset.strip(), aggregation_approach=request.appr.strip(), image_name=name, container_id=id, address=ip, port=port, link=link)
     db.add(new_fl)
     db.commit()
     db.refresh(new_fl)
     print(new_fl)
     return JSONResponse(content={
-        'ip': ip,
-        'port': port,
-        'id': id,
-        'link': link
-    }, status_code=200)
+        'job_id': job_id,
+        'task': request.task.strip(),
+        'rounds': request.epochs,
+        'status': 'building',
+        'global_model': request.model.strip(),
+        'metrics': request.dataset.strip()
+    }, status_code=status.HTTP_200_OK)
 
 @app.get('/download/{id}/{file}')
 async def download(id, file, current_user: schemas.User = Depends(get_current_user)):
     # return FileResponse(os.getcwd() + '/downloads/' + file, filename=file, background=BackgroundTask(lambda: os.remove(os.getcwd() + '/downloads/' + file)))
     path = os.getcwd() + '/downloads/' + id + '_stored_files/' + file
     if not os.path.isfile(path):
-        return Response(status_code=400, content='No such file')
+        return Response(status_code=status.HTTP_400_BAD_REQUEST, content='No such file')
     return FileResponse(path, filename=file)
 
 @app.get('/training/status/{id}')
