@@ -19,7 +19,7 @@ from jose import JWTError, jwt
 from sklearn import datasets
 from sqlalchemy import and_
 from sqlalchemy.orm import Session
-from sqlalchemy.exc import SQLAlchemyError, DataError
+from sqlalchemy import func
 
 import docker
 import hashing
@@ -53,9 +53,6 @@ docker_cli = docker.DockerClient(base_url='unix:///var/run/docker.sock')
 
 if not os.path.exists(os.getcwd() + '/downloads'):
     os.makedirs(os.getcwd() + '/downloads')
-
-if not os.path.exists(os.getcwd() + '/upload'):
-    os.makedirs(os.getcwd() + '/upload')
 
 if not os.path.exists(os.getcwd() + '/clients'):
     os.makedirs(os.getcwd() + '/clients')
@@ -113,7 +110,7 @@ def create_user(request: schemas.User,db: Session = Depends(get_db)):
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
-    os.mkdir(os.getcwd() + f"/upload/{new_user.id}_stored_files/")
+    os.mkdir(os.getcwd() + f"/downloads/{new_user.id}_stored_files/")
     return new_user
 
 @app.get('/user/{id}', response_model=schemas.ShowUser)
@@ -173,7 +170,7 @@ async def upload_file(file: UploadFile = File(),db: Session = Depends(get_db), c
 
 
     # file_location = os.path.join(f"../{current_user['id']}_stored_files/", file_name)
-    file_location = os.path.join(os.getcwd() + f"/upload/{current_user['id']}_stored_files/", file_name)
+    file_location = os.path.join(os.getcwd() + f"/downloads/{current_user['id']}_stored_files/", file_name)
     with open(file_location, "wb+") as file_object:
         file_object.write(fs)
 
@@ -333,8 +330,9 @@ def start_training_server(request: schemas.FLModel, db: Session = Depends(get_db
         return Response(status_code=500)
     ip = get_host_ip()
     print(ip, port)
-    file2zip(os.getcwd() + f'/downloads/{name}.zip', [os.getcwd() + '/flwr_docker/run.sh', os.getcwd() + '/flwr_docker/run.ps1', os.getcwd() + '/flwr_docker/client/Dockerfile', os.getcwd() + '/flwr_docker/client/client.py'])
-    new_fl = models.LearningModel(owner_id=current_user['id'], task=request.task.strip(), epochs=request.epochs, model=request.model.strip(), dataset=request.dataset.strip(), aggregation_approach=request.appr.strip(), image_name=name, container_id=id, link=f'/download/{name}.zip')
+    file2zip(os.getcwd() + f'/downloads/{current_user["id"]}_stored_files/{name}.zip', [os.getcwd() + '/flwr_docker/run.sh', os.getcwd() + '/flwr_docker/run.ps1', os.getcwd() + '/flwr_docker/client/Dockerfile', os.getcwd() + '/flwr_docker/client/client.py'])
+    link = f'/download/{current_user["id"]}/{name}.zip'
+    new_fl = models.LearningModel(owner_id=current_user['id'], task=request.task.strip(), epochs=request.epochs, model=request.model.strip(), dataset=request.dataset.strip(), aggregation_approach=request.appr.strip(), image_name=name, container_id=id, link=link)
     db.add(new_fl)
     db.commit()
     db.refresh(new_fl)
@@ -343,15 +341,16 @@ def start_training_server(request: schemas.FLModel, db: Session = Depends(get_db
         'ip': ip,
         'port': port,
         'id': id,
-        'link': f'/download/{name}.zip'
+        'link': link
     }, status_code=200)
 
-@app.get('/download/{file}')
-async def download(file):
+@app.get('/download/{id}/{file}')
+async def download(id, file, current_user: schemas.User = Depends(get_current_user)):
     # return FileResponse(os.getcwd() + '/downloads/' + file, filename=file, background=BackgroundTask(lambda: os.remove(os.getcwd() + '/downloads/' + file)))
-    if not os.path.isfile(os.getcwd() + '/downloads/' + file):
+    path = os.getcwd() + '/downloads/' + id + '_stored_files/' + file
+    if not os.path.isfile(path):
         return Response(status_code=400, content='No such file')
-    return FileResponse(os.getcwd() + '/downloads/' + file, filename=file)
+    return FileResponse(path, filename=file)
 
 @app.get('/training/status/{id}')
 def training_status(id, current_user: schemas.User = Depends(get_current_user)):
@@ -359,8 +358,8 @@ def training_status(id, current_user: schemas.User = Depends(get_current_user)):
     try:
         con = docker_cli.containers.get(id)
         status = con.attrs.get('State')['Status']
-    except APIError:
-        print('Container not found with id {0}'.format(id))
+    except APIError as e:
+        logging.getLogger('uvicorn.error').error(e)
         return Response(status_code=400)
     return JSONResponse(content={'status': status})
 
@@ -422,13 +421,14 @@ def get_trainings(db: Session = Depends(get_db), current_user: schemas.ShowUser 
 @app.post('/upload/dataset')
 async def uploade_dataset(dataset: str = Form(), desc: str = Form(), affil: str = Form(), file_type: str = Form(), raw_file: UploadFile = File(), datatype: str = Form(), db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
     fs = await raw_file.read()
-    new_file = models.FileCollection(filename=raw_file.filename, filesize=f'{len(fs)/1000} kb', user_id=current_user["id"])
+    filename = current_user["name"] + '_' + str(hash(time())) + '_' + raw_file.filename
+    new_file = models.FileCollection(filename=filename, filesize=f'{len(fs)/1000} kb', user_id=current_user["id"])
     # db.new(new_file)
     db.add(new_file)
     db.commit()
     db.refresh(new_file)
 
-    file_location = os.path.join(os.getcwd() + f"/upload/{current_user['id']}_stored_files/", raw_file.filename)
+    file_location = os.path.join(os.getcwd() + f"/downloads/{current_user['id']}_stored_files/", filename)
     with open(file_location, 'wb+') as file_obj:
         file_obj.write(fs)
 
@@ -438,33 +438,26 @@ async def uploade_dataset(dataset: str = Form(), desc: str = Form(), affil: str 
     db.commit()
     db.refresh(new_data)
 
-    return new_data
+    return "Success to upload dataset"
 
 # Get all the dataset for current user
 @app.get('/datasets')
 def get_datasets(db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
-    sets = db.query(models.Dataset).filter(models.Dataset.owner_id==current_user['id']).all()
+    sets = db.query(models.Dataset.dataset, models.Dataset.description, models.Dataset.affiliation, models.Dataset.filetype, models.Dataset.datatype).filter(models.Dataset.owner_id==current_user['id']).all()
     return sets
 
 # Get all datasets
 @app.get('/datasets/all')
 def get_all_datasets(db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
-    sets = db.query(models.Dataset).all()
+    sets = db.query(models.Dataset.id, models.Dataset.dataset, models.Dataset.description, models.Dataset.affiliation, models.Dataset.filetype, models.Dataset.datatype, models.User.name).join(models.User, models.Dataset.owner_id==models.User.id).all()
     return sets
 
 # Get dataset by id
 @app.get('/dataset/{id}')
 def get_dataset_by_id(id, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
-    data = db.query(models.Dataset).filter(models.Dataset.id==id).first()
-    if data is None:
-        return Response(status_code=400, content='No Existed Dataset')
-    ret = data.__dict__
-    del ret['filepath']
-    uid = ret['owner_id']
-    del ret['owner_id']
-    user = db.query(models.User).filter(models.User.id==uid).first()
-    ret['username'] = user.name
-    return ret
+    sql = f'select dataset, description, affiliation, filetype, datatype, name, if(users.id={current_user["id"]}, concat("/download/", users.id, "_stored_files/", filename), "url to application") as url from datasets, users, file_collection where datasets.owner_id = users.id and datasets.filepath = file_collection.id and datasets.id = {id};'
+    data = db.execute(sql).fetchone()
+    return data if data is not None else Response(status_code=400, content='No Existed Dataset')
 
 # Delete dataset
 @app.delete('/dataset/delete/{id}')
@@ -478,7 +471,7 @@ def delete_dataset(id, db: Session = Depends(get_db), current_user: schemas.Show
     if f is None:
         return Response(status_code=400, content='No Such File')
     filename = f.filename
-    filepath = os.getcwd() + f'/upload/{uid}_stored_files/' + filename
+    filepath = os.getcwd() + f'/downloads/{uid}_stored_files/' + filename
     # Delete dataset
     db.query(models.Dataset).filter(models.Dataset.id==id).delete()
     db.commit()

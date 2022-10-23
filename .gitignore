@@ -6,6 +6,5 @@ fastapi-env
 .code
 .vscode
 
-upload
 clients
 downloads
