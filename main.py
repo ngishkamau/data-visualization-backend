@@ -1,32 +1,25 @@
-from cgitb import handler
-from distutils.core import run_setup
-from fileinput import filename
-from genericpath import isfile
 import logging
 import os
 import csv
 from datetime import datetime, timedelta
-from operator import mod
-from pyexpat import model
 from typing import List
-import MySQLdb
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordBearer 
 from fastapi.responses import Response, JSONResponse, FileResponse
 from jose import JWTError, jwt
-from sklearn import datasets
 from sqlalchemy import and_
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 import uuid
+import models
 import docker
 import hashing
-import models
 import schemas
 import requests
+import threading
 from time import time
 from docker.errors import BuildError, APIError, ContainerError, ImageNotFound, NotFound
 # from starlette.background import BackgroundTask
@@ -301,20 +294,20 @@ async def file_access_remvove_decline(file_request_id: int, request: schemas.Fil
     db.commit()
     return "Updated"
 
-@app.post('/start/training/server')
-def start_training_server(request: schemas.FLModel, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
+def run_training(db: Session, name: str, port: int):
     server: tuple = ()
-    name = current_user['name'].strip().lower() + '_' + request.task.strip().lower() + '_' + str(hash(time()))
-    job_id = str(uuid.uuid5(uuid.NAMESPACE_URL, name))
     try:
         server = docker_cli.images.build(path=os.getcwd() + '/flwr_docker/server', tag=name, forcerm=True)
     except BuildError as e:
         logging.getLogger('uvicorn.error').error(e)
-        return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        db.query(models.LearningModel).filter(models.LearningModel.image_name==name).update({models.LearningModel.image_name: None})
+        db.commit()
+        return
     except APIError as e:
         logging.getLogger('uvicorn.error').error(e)
-        return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    port = get_free_port()
+        db.query(models.LearningModel).filter(models.LearningModel.image_name==name).update({models.LearningModel.image_name: None})
+        db.commit()
+        return
     id = ''
     try:
         file_path = os.getcwd() + '/clients/' + name
@@ -323,29 +316,41 @@ def start_training_server(request: schemas.FLModel, db: Session = Depends(get_db
         id = container.id
     except ContainerError as e:
         logging.getLogger('uvicorn.error').error(e)
-        return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return
     except ImageNotFound as e:
         logging.getLogger('uvicorn.error').error(e)
-        return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return
     except APIError as e:
         logging.getLogger('uvicorn.error').error(e)
-        return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return
+    db.query(models.LearningModel).filter(models.LearningModel.image_name==name).update({models.LearningModel.container_id: id})
+    db.commit()
+
+@app.post('/start/training/server')
+def start_training_server(request: schemas.FLModel, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
+    name = current_user['name'].strip().lower() + '_' + request.task.strip().lower() + '_' + str(hash(time()))
+    job_id = str(uuid.uuid5(uuid.NAMESPACE_URL, name))
+    # build and run training 
+    port = get_free_port()
     ip = get_host_ip()
     print(ip, port)
     file2zip(os.getcwd() + f'/downloads/{current_user["id"]}_stored_files/{name}.zip', [os.getcwd() + '/flwr_docker/run.sh', os.getcwd() + '/flwr_docker/run.ps1', os.getcwd() + '/flwr_docker/client/Dockerfile', os.getcwd() + '/flwr_docker/client/client.py'])
     link = f'/download/{current_user["id"]}/{name}.zip'
-    new_fl = models.LearningModel(owner_id=current_user['id'], job_id=job_id, task=request.task.strip(), epochs=request.epochs, model=request.model.strip(), dataset=request.dataset.strip(), aggregation_approach=request.appr.strip(), image_name=name, container_id=id, address=ip, port=port, link=link)
+    new_fl = models.LearningModel(owner_id=current_user['id'], job_id=job_id, task=request.task.strip(), epochs=request.epochs, model=request.model.strip(), dataset=request.dataset.strip(), aggregation_approach=request.appr.strip(), image_name=name, container_id=None, address=ip, port=port, link=link)
     db.add(new_fl)
     db.commit()
     db.refresh(new_fl)
     print(new_fl)
+    t = threading.Thread(target=run_training, args=(db, name, port))
+    t.start()
     return JSONResponse(content={
+        'id': new_fl.id,
         'job_id': job_id,
         'task': request.task.strip(),
         'rounds': request.epochs,
         'status': 'building',
         'global_model': request.model.strip(),
-        'metrics': request.dataset.strip()
+        'metrics': request.dataset.strip(),
     }, status_code=status.HTTP_200_OK)
 
 @app.get('/download/{id}/{file}')
@@ -357,15 +362,19 @@ async def download(id, file, current_user: schemas.User = Depends(get_current_us
     return FileResponse(path, filename=file)
 
 @app.get('/training/status/{id}')
-def training_status(id, current_user: schemas.User = Depends(get_current_user)):
+def training_status(id, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
+    c = db.query(models.LearningModel.container_id).filter(models.LearningModel.id==id).first()
+    cid = c.container_id
+    if cid is None:
+        return JSONResponse(content={'code': 21000, 'status': 'No existed training'})
     status = ''
     try:
-        con = docker_cli.containers.get(id)
+        con = docker_cli.containers.get(cid)
         status = con.attrs.get('State')['Status']
     except APIError as e:
         logging.getLogger('uvicorn.error').error(e)
         return Response(status_code=400)
-    return JSONResponse(content={'status': status})
+    return JSONResponse(content={'code': 20000, 'status': status})
 
 # Access to clients' ip addresses
 @app.get('/training/connections/{id}')
@@ -397,21 +406,25 @@ def training_connections(id, current_user: schemas.User = Depends(get_current_us
     return JSONResponse(resp)
 
 # Delete fl training including container, image and data storaged in database
-@app.delete('/training/delete/{name}')
-def delete_training(name, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+@app.delete('/training/delete/{id}')
+def delete_training(id, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+    img = db.query(models.LearningModel.image_name).filter(models.LearningModel.id==id).first()
+    name = img.image_name
+    if name is None:
+        return Response(status_code=status.HTTP_400_BAD_REQUEST, content='No such training found')
     try:
         con = docker_cli.containers.get(name)
-        if con.attrs['State']['Running'] is True:
-            # Stop container
-            con.pause()
+        con.stop()
         con.remove()
     except NotFound as e:
+        logging.getLogger('uvicorn.error').error(e)
+    except APIError as e:
         logging.getLogger('uvicorn.error').error(e)
     try:
         docker_cli.images.remove(name)
     except ImageNotFound as e:
         logging.getLogger('uvicorn.error').error(e)
-    db.query(models.LearningModel).filter(models.LearningModel.image_name==name).delete()
+    db.query(models.LearningModel).filter(models.LearningModel.id==id).delete()
     db.commit()
     return 'Training is deleted'
 
@@ -419,7 +432,30 @@ def delete_training(name, db: Session = Depends(get_db), current_user: schemas.S
 @app.get('/trainings')
 def get_trainings(db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
     sets = db.query(models.LearningModel).filter(models.LearningModel.owner_id==current_user['id']).all()
-    return sets
+    ret = []
+    for elem in sets:
+        status = ''
+        if elem.container_id is not None:
+            try:
+                con = docker_cli.containers.get(elem.container_id)
+                status = con.attrs['State']('Status')
+            except APIError as e:
+                logging.getLogger('uvicorn.error').error(e)
+                status = 'fail'
+        else:
+            status = 'none'
+        item = {
+            'id': elem.id,
+            'job_id': elem.job_id,
+            'task': elem.task,
+            'rounds': elem.epochs,
+            'status': status,
+            'download': elem.link,
+            'ip': elem.address,
+            'port': elem.port
+        }
+        ret.append(item)
+    return ret 
 
 # Upload new dataset
 @app.post('/upload/dataset')
