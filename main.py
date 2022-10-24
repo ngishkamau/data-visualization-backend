@@ -4,7 +4,7 @@ import csv
 from datetime import datetime, timedelta
 from typing import List
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status, Form
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer 
 from fastapi.responses import Response, JSONResponse, FileResponse
@@ -14,15 +14,15 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 import uuid
+
+import tensorboard
 import models
 import docker
 import hashing
 import schemas
 import requests
-import threading
 from time import time
 from docker.errors import BuildError, APIError, ContainerError, ImageNotFound, NotFound
-# from starlette.background import BackgroundTask
 from utils import get_free_port, get_host_ip, file2zip
 from database import SessionLocal, db_engine
 from get_models import get_model_1, get_model_2, get_model_3
@@ -48,8 +48,8 @@ docker_cli = docker.DockerClient(base_url='unix:///var/run/docker.sock')
 if not os.path.exists(os.getcwd() + '/downloads'):
     os.makedirs(os.getcwd() + '/downloads')
 
-if not os.path.exists(os.getcwd() + '/clients'):
-    os.makedirs(os.getcwd() + '/clients')
+if not os.path.exists(os.getcwd() + '/trainings'):
+    os.makedirs(os.getcwd() + '/trainings')
 
 app.add_middleware(
     CORSMiddleware,
@@ -294,7 +294,8 @@ async def file_access_remvove_decline(file_request_id: int, request: schemas.Fil
     db.commit()
     return "Updated"
 
-def run_training(db: Session, name: str, port: int):
+def run_training(id: int, name: str, ten_name: str, db: Session = Depends(get_db)):
+    # Build fl training
     server: tuple = ()
     try:
         server = docker_cli.images.build(path=os.getcwd() + '/flwr_docker/server', tag=name, forcerm=True)
@@ -308,11 +309,13 @@ def run_training(db: Session, name: str, port: int):
         db.query(models.LearningModel).filter(models.LearningModel.image_name==name).update({models.LearningModel.image_name: None})
         db.commit()
         return
-    id = ''
+    id: str = ""
+    server_port: int = 0
+    file_path = os.getcwd() + '/trainings/' + name
     try:
-        file_path = os.getcwd() + '/clients/' + name
-        os.mknod(file_path)
-        container = docker_cli.containers.run(image=server[0].id, name=name, detach=True, ports={8080: port}, volumes={file_path: {'bind': '/server/clients', 'mode': 'rw'}})
+        os.mknod(file_path + '/clients')
+        server_port = get_free_port()
+        container = docker_cli.containers.run(image=server[0].id, name=name, detach=True, ports={8080: server_port}, volumes={file_path + '/clients': {'bind': '/server/clients', 'mode': 'rw'}, file_path + '/global_model': {'bind': '/server/global_model', 'mode': 'rw'}, file_path + '/flwr_logs': {'bind': '/server/flwr_logs', 'mode': 'rw'}})
         id = container.id
     except ContainerError as e:
         logging.getLogger('uvicorn.error').error(e)
@@ -323,26 +326,48 @@ def run_training(db: Session, name: str, port: int):
     except APIError as e:
         logging.getLogger('uvicorn.error').error(e)
         return
-    db.query(models.LearningModel).filter(models.LearningModel.image_name==name).update({models.LearningModel.container_id: id})
+    # Build tensorboard
+    ten: tuple = ()
+    try:
+        ten = docker_cli.images.build(path=os.getcwd() + '/flwr_docker/tensorboard', tag=ten_name, forcerm=True)
+    except BuildError as e:
+        logging.getLogger('uvicorn.error').error(e)
+        db.query(models.LearningModel).filter(models.LearningModel.tensorboard_image==ten_name).update({models.LearningModel.tensorboard_image: None})
+        db.commit()
+        return
+    ten_id: str = ""
+    ten_port: int = 0
+    try:
+        ten_port = get_free_port()
+        con = docker_cli.containers.run(image=ten[0].id, name=ten_name, detach=True, ports={8090: ten_port}, volumes={file_path + '/flwr_logs': {'bind': '/logs', 'mode': 'ro'}})
+        ten_id = con.id
+    except ContainerError as e:
+        logging.getLogger('uvicorn.error').error(e)
+        return
+    except ImageNotFound as e:
+        logging.getLogger('uvicorn.error').error(e)
+        return
+    except APIError as e:
+        logging.getLogger('uvicorn.error').error(e)
+        return 
+    db.query(models.LearningModel).filter(models.LearningModel.id==id).update({models.LearningModel.container_id: id, models.LearningModel.port: server_port, models.LearningModel.tensorboard_container: ten_id, models.LearningModel.tensorboard_port: ten_port})
     db.commit()
 
 @app.post('/start/training/server')
-def start_training_server(request: schemas.FLModel, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
+def start_training_server(request: schemas.FLModel, background_tasks: BackgroundTasks, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
     name = current_user['name'].strip().lower() + '_' + request.task.strip().lower() + '_' + str(hash(time()))
+    ten_name = 'tensorboard_' + name
     job_id = str(uuid.uuid5(uuid.NAMESPACE_URL, name))
     # build and run training 
-    port = get_free_port()
-    ip = get_host_ip()
-    print(ip, port)
     file2zip(os.getcwd() + f'/downloads/{current_user["id"]}_stored_files/{name}.zip', [os.getcwd() + '/flwr_docker/run.sh', os.getcwd() + '/flwr_docker/run.ps1', os.getcwd() + '/flwr_docker/client/Dockerfile', os.getcwd() + '/flwr_docker/client/client.py'])
     link = f'/download/{current_user["id"]}/{name}.zip'
-    new_fl = models.LearningModel(owner_id=current_user['id'], job_id=job_id, task=request.task.strip(), epochs=request.epochs, model=request.model.strip(), dataset=request.dataset.strip(), aggregation_approach=request.appr.strip(), image_name=name, container_id=None, address=ip, port=port, link=link)
+    new_fl = models.LearningModel(owner_id=current_user['id'], job_id=job_id, task=request.task.strip(), epochs=request.epochs, model=request.model.strip(), dataset=request.dataset.strip(), aggregation_approach=request.appr.strip(), image_name=name, container_id=None, address=get_host_ip(), port=None, link=link, tensorboard_port=None, tensorboard_image=ten_name, tensorboard_container=None)
     db.add(new_fl)
     db.commit()
     db.refresh(new_fl)
     print(new_fl)
-    t = threading.Thread(target=run_training, args=(db, name, port))
-    t.start()
+    os.makedirs(os.getcwd() + '/traingings/' + name)
+    background_tasks.add_task(run_training, new_fl.id, name, db)
     return JSONResponse(content={
         'id': new_fl.id,
         'job_id': job_id,
@@ -378,7 +403,8 @@ def training_status(id, db: Session = Depends(get_db), current_user: schemas.Use
 
 # Access to clients' ip addresses
 @app.get('/training/connections/{id}')
-def training_connections(id, current_user: schemas.User = Depends(get_current_user)):
+def training_connections(id, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
+    name = db.query(models.LearningModel.image_name).filter(models.LearningModel.id==id).first()
     global ip_url
     ip_url = 'http://ip-api.com/json/'
     server_location = requests.get(ip_url + get_host_ip()).json()
@@ -392,7 +418,7 @@ def training_connections(id, current_user: schemas.User = Depends(get_current_us
         'server': sev_ret,
         'client': []
     }
-    with open(os.getcwd() + '/clients/' + id, 'r') as f:
+    with open(os.getcwd() + '/training/' + name + '/clients', 'r') as f:
         ips = f.read().split('\n')
         for elem in ips:
             cli_ret = requests.get(ip_url + elem.strip()).json()
@@ -430,7 +456,7 @@ def delete_training(id, db: Session = Depends(get_db), current_user: schemas.Sho
 
 # Get all the fl training for current user
 @app.get('/trainings')
-def get_trainings(db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+def get_all_trainings(db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
     sets = db.query(models.LearningModel).filter(models.LearningModel.owner_id==current_user['id']).all()
     ret = []
     for elem in sets:
@@ -452,7 +478,8 @@ def get_trainings(db: Session = Depends(get_db), current_user: schemas.ShowUser 
             'status': status,
             'download': elem.link,
             'ip': elem.address,
-            'port': elem.port
+            'port': elem.port,
+            'tensorboard_port': elem.tensorboard_port
         }
         ret.append(item)
     return ret 

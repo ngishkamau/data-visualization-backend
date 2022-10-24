@@ -15,6 +15,7 @@ RUN apt update -y \
     && sed -i "s/127.0.0.1:8080/${IP}:${PORT}/g" client.py
 
 
-VOLUME /data
+VOLUME [ "/data" ]
+VOLUME [ "/client/local_model" ]
 
 CMD ["python3", "/client/client.py"]
