@@ -16,8 +16,9 @@ from sqlalchemy import func
 import uuid
 
 import tensorboard
-import models
 import docker
+import models
+import shutil
 import hashing
 import schemas
 import requests
@@ -294,7 +295,7 @@ async def file_access_remvove_decline(file_request_id: int, request: schemas.Fil
     db.commit()
     return "Updated"
 
-def run_training(id: int, name: str, ten_name: str, db: Session = Depends(get_db)):
+def run_training(id: int, job_id: str, name: str, ten_name: str, db: Session = Depends(get_db)):
     # Build fl training
     server: tuple = ()
     try:
@@ -311,7 +312,7 @@ def run_training(id: int, name: str, ten_name: str, db: Session = Depends(get_db
         return
     con_id: str = ""
     server_port: int = 0
-    file_path = os.getcwd() + '/trainings/' + name
+    file_path = os.getcwd() + '/trainings/' + job_id
     try:
         os.mknod(file_path + '/clients')
         server_port = get_free_port()
@@ -359,14 +360,14 @@ def start_training_server(request: schemas.FLModel, background_tasks: Background
     ten_name = 'tensorboard_' + name
     job_id = str(uuid.uuid5(uuid.NAMESPACE_URL, name))
     # build and run training 
-    file2zip(os.getcwd() + f'/downloads/{current_user["id"]}_stored_files/{name}.zip', [os.getcwd() + '/flwr_docker/run.sh', os.getcwd() + '/flwr_docker/run.ps1', os.getcwd() + '/flwr_docker/client/Dockerfile', os.getcwd() + '/flwr_docker/client/client.py'])
-    link = f'/download/{current_user["id"]}/{name}.zip'
+    file2zip(os.getcwd() + f'/downloads/{current_user["id"]}_stored_files/{job_id}.zip', [os.getcwd() + '/flwr_docker/run.sh', os.getcwd() + '/flwr_docker/run.ps1', os.getcwd() + '/flwr_docker/client/Dockerfile', os.getcwd() + '/flwr_docker/client/client.py'])
+    link = f'/download/{current_user["id"]}/{job_id}.zip'
     new_fl = models.LearningModel(owner_id=current_user['id'], job_id=job_id, task=request.task.strip(), epochs=request.epochs, model=request.model.strip(), dataset=request.dataset.strip(), aggregation_approach=request.appr.strip(), image_name=name, container_id=None, address=get_host_ip(), port=None, link=link, tensorboard_port=None, tensorboard_image=ten_name, tensorboard_container=None)
     db.add(new_fl)
     db.commit()
     db.refresh(new_fl)
-    os.makedirs(os.getcwd() + '/trainings/' + name)
-    background_tasks.add_task(run_training, new_fl.id, name, ten_name, db)
+    os.makedirs(os.getcwd() + '/trainings/' + job_id)
+    background_tasks.add_task(run_training, new_fl.id, job_id, name, ten_name, db)
     return JSONResponse(content={
         'id': new_fl.id,
         'job_id': job_id,
@@ -385,6 +386,7 @@ async def download(id, file, current_user: schemas.User = Depends(get_current_us
         return Response(status_code=status.HTTP_400_BAD_REQUEST, content='No such file')
     return FileResponse(path, filename=file)
 
+# Get training status by id
 @app.get('/training/status/{id}')
 def training_status(id, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
     c = db.query(models.LearningModel.container_id).filter(models.LearningModel.id==id).first()
@@ -400,6 +402,7 @@ def training_status(id, db: Session = Depends(get_db), current_user: schemas.Use
         return Response(status_code=400)
     return JSONResponse(content={'code': 20000, 'status': status})
 
+# Get all available training status
 @app.get('/training/all/status')
 def training_all_status(db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
     sets = db.query(models.LearningModel.id, models.LearningModel.container_id).filter(models.LearningModel.owner_id==current_user["id"]).all()
@@ -417,7 +420,7 @@ def training_all_status(db: Session = Depends(get_db), current_user: schemas.Use
 # Access to clients' ip addresses
 @app.get('/training/connections/{id}')
 def training_connections(id, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
-    name = db.query(models.LearningModel.image_name).filter(models.LearningModel.id==id).first()
+    name = db.query(models.LearningModel.job_id).filter(models.LearningModel.id==id).first()
     global ip_url
     ip_url = 'http://ip-api.com/json/'
     server_location = requests.get(ip_url + get_host_ip()).json()
@@ -447,7 +450,11 @@ def training_connections(id, db: Session = Depends(get_db), current_user: schema
 # Delete fl training including container, image and data storaged in database
 @app.delete('/training/delete/{id}')
 def delete_training(id, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
-    img = db.query(models.LearningModel.image_name, models.LearningModel.container_id, models.LearningModel.tensorboard_image, models.LearningModel.tensorboard_container).filter(models.LearningModel.id==id, models.LearningModel.owner_id==current_user["id"]).first()
+    img = db.query(models.LearningModel.job_id, models.LearningModel.image_name, models.LearningModel.container_id, models.LearningModel.tensorboard_image, models.LearningModel.tensorboard_container).filter(models.LearningModel.id==id, models.LearningModel.owner_id==current_user["id"]).first()
+    if img is None:
+        return Response(status_code=status.HTTP_400_BAD_REQUEST, content='No such training found')
+    job_id = img.job_id
+    # Delete container and image for training
     cid = img.container_id
     name = img.image_name
     if cid is not None:
@@ -464,6 +471,7 @@ def delete_training(id, db: Session = Depends(get_db), current_user: schemas.Sho
             docker_cli.images.remove(name)
         except ImageNotFound as e:
             logging.getLogger('uvicorn.error').error(e)
+    # Delete container and image for tensorboard
     tcid = img.tensorboard_container
     tname = img.tensorboard_image
     if tcid is not None:
@@ -480,6 +488,16 @@ def delete_training(id, db: Session = Depends(get_db), current_user: schemas.Sho
             docker_cli.images.remove(tname)
         except ImageNotFound as e:
             logging.getLogger('uvicorn.error').error(e)
+    # Delete files
+    try:
+        os.remove(os.getcwd() + f'/downloads/{current_user["id"]}_stored_files/{job_id}.zip')
+    except OSError as e:
+        logging.getLogger('uvicorn.error').error(e)
+    try:
+        shutil.rmtree(os.getcwd() + f'/trainings/{job_id}')
+    except OSError as e:
+        logging.getLogger('uvicorn.error').error(e)
+    # Delete row in database
     db.query(models.LearningModel).filter(models.LearningModel.id==id).delete()
     db.commit()
     return 'Training is deleted'
