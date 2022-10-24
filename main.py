@@ -309,14 +309,14 @@ def run_training(id: int, name: str, ten_name: str, db: Session = Depends(get_db
         db.query(models.LearningModel).filter(models.LearningModel.image_name==name).update({models.LearningModel.image_name: None})
         db.commit()
         return
-    id: str = ""
+    con_id: str = ""
     server_port: int = 0
     file_path = os.getcwd() + '/trainings/' + name
     try:
         os.mknod(file_path + '/clients')
         server_port = get_free_port()
         container = docker_cli.containers.run(image=server[0].id, name=name, detach=True, ports={8080: server_port}, volumes={file_path + '/clients': {'bind': '/server/clients', 'mode': 'rw'}, file_path + '/global_model': {'bind': '/server/global_model', 'mode': 'rw'}, file_path + '/flwr_logs': {'bind': '/server/flwr_logs', 'mode': 'rw'}})
-        id = container.id
+        con_id = container.id
     except ContainerError as e:
         logging.getLogger('uvicorn.error').error(e)
         return
@@ -350,7 +350,7 @@ def run_training(id: int, name: str, ten_name: str, db: Session = Depends(get_db
     except APIError as e:
         logging.getLogger('uvicorn.error').error(e)
         return 
-    db.query(models.LearningModel).filter(models.LearningModel.id==id).update({models.LearningModel.container_id: id, models.LearningModel.port: server_port, models.LearningModel.tensorboard_container: ten_id, models.LearningModel.tensorboard_port: ten_port})
+    db.query(models.LearningModel).filter(models.LearningModel.id==id).update({models.LearningModel.container_id: con_id, models.LearningModel.port: server_port, models.LearningModel.tensorboard_container: ten_id, models.LearningModel.tensorboard_port: ten_port})
     db.commit()
 
 @app.post('/start/training/server')
@@ -365,9 +365,8 @@ def start_training_server(request: schemas.FLModel, background_tasks: Background
     db.add(new_fl)
     db.commit()
     db.refresh(new_fl)
-    print(new_fl)
-    os.makedirs(os.getcwd() + '/traingings/' + name)
-    background_tasks.add_task(run_training, new_fl.id, name, db)
+    os.makedirs(os.getcwd() + '/trainings/' + name)
+    background_tasks.add_task(run_training, new_fl.id, name, ten_name, db)
     return JSONResponse(content={
         'id': new_fl.id,
         'job_id': job_id,
@@ -392,7 +391,7 @@ def training_status(id, db: Session = Depends(get_db), current_user: schemas.Use
     cid = c.container_id
     if cid is None:
         return JSONResponse(content={'code': 21000, 'status': 'No existed training'})
-    status = ''
+    status: str = ''
     try:
         con = docker_cli.containers.get(cid)
         status = con.attrs.get('State')['Status']
@@ -400,6 +399,20 @@ def training_status(id, db: Session = Depends(get_db), current_user: schemas.Use
         logging.getLogger('uvicorn.error').error(e)
         return Response(status_code=400)
     return JSONResponse(content={'code': 20000, 'status': status})
+
+@app.get('/training/all/status')
+def training_all_status(db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
+    sets = db.query(models.LearningModel.id, models.LearningModel.container_id).filter(models.LearningModel.owner_id==current_user["id"]).all()
+    ret: list = []
+    for elem in sets:
+        if elem.container_id is None:
+            continue
+        try:
+            con = docker_cli.containers.get(elem.container_id)
+            ret.append({'id': elem.id, 'status': con.attrs.get('State')['Status']})
+        except APIError as e:
+            logging.getLogger('uvicorn.error').error(e)
+    return ret
 
 # Access to clients' ip addresses
 @app.get('/training/connections/{id}')
@@ -434,40 +447,79 @@ def training_connections(id, db: Session = Depends(get_db), current_user: schema
 # Delete fl training including container, image and data storaged in database
 @app.delete('/training/delete/{id}')
 def delete_training(id, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
-    img = db.query(models.LearningModel.image_name, models.LearningModel.container_id).filter(models.LearningModel.id==id).first()
+    img = db.query(models.LearningModel.image_name, models.LearningModel.container_id, models.LearningModel.tensorboard_image, models.LearningModel.tensorboard_container).filter(models.LearningModel.id==id, models.LearningModel.owner_id==current_user["id"]).first()
     cid = img.container_id
     name = img.image_name
-    if cid is None:
-        return Response(status_code=status.HTTP_400_BAD_REQUEST, content='No such training found')
-    try:
-        con = docker_cli.containers.get(cid)
-        con.stop()
-        con.remove()
-    except NotFound as e:
-        logging.getLogger('uvicorn.error').error(e)
-    except APIError as e:
-        logging.getLogger('uvicorn.error').error(e)
-    if name is None:
-        return Response(status_code=status.HTTP_400_BAD_REQUEST, content='No such training found')
-    try:
-        docker_cli.images.remove(name)
-    except ImageNotFound as e:
-        logging.getLogger('uvicorn.error').error(e)
+    if cid is not None:
+        try:
+            con = docker_cli.containers.get(cid)
+            con.stop()
+            con.remove(force=True)
+        except NotFound as e:
+            logging.getLogger('uvicorn.error').error(e)
+        except APIError as e:
+            logging.getLogger('uvicorn.error').error(e)
+    if name is not None:
+        try:
+            docker_cli.images.remove(name)
+        except ImageNotFound as e:
+            logging.getLogger('uvicorn.error').error(e)
+    tcid = img.tensorboard_container
+    tname = img.tensorboard_image
+    if tcid is not None:
+        try:
+            con = docker_cli.containers.get(tcid)
+            con.stop()
+            con.remove(force=True)
+        except NotFound as e:
+            logging.getLogger('uvicorn.error').error(e)
+        except APIError as e:
+            logging.getLogger('uvicorn.error').error(e)
+    if tname is not None:
+        try:
+            docker_cli.images.remove(tname)
+        except ImageNotFound as e:
+            logging.getLogger('uvicorn.error').error(e)
     db.query(models.LearningModel).filter(models.LearningModel.id==id).delete()
     db.commit()
     return 'Training is deleted'
+
+# Get a fl training by id
+@app.get('/training/{id}')
+def get_training_by_id(id, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+    fl = db.query(models.LearningModel).filter(models.LearningModel.id==id, models.LearningModel.owner_id==current_user["id"]).first()
+    if fl is None:
+        return Response(status_code=400, content='No such training found')
+    status: str = ''
+    try:
+        con = docker_cli.containers.get(fl.container_id)
+        status = con.attrs.get('State')['Status']
+    except APIError as e:
+        logging.getLogger('uvicorn.error').error(e)
+        status = 'fail'
+    return JSONResponse(content={
+        'id': fl.id,
+        'job_id': fl.job_id,
+        'task': fl.task,
+        'rounds': fl.epochs,
+        'status': status,
+        'download': fl.link,
+        'ip': fl.address,
+        'port': fl.port,
+        'tensorboard_port': fl.tensorboard_port
+    }, status_code=200)
 
 # Get all the fl training for current user
 @app.get('/trainings')
 def get_all_trainings(db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
     sets = db.query(models.LearningModel).filter(models.LearningModel.owner_id==current_user['id']).all()
-    ret = []
+    ret: list = []
     for elem in sets:
-        status = ''
+        status: str = ''
         if elem.container_id is not None:
             try:
                 con = docker_cli.containers.get(elem.container_id)
-                status = con.attrs['State']('Status')
+                status = con.attrs.get('State')['Status']
             except APIError as e:
                 logging.getLogger('uvicorn.error').error(e)
                 status = 'fail'
