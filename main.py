@@ -520,6 +520,8 @@ def get_training_by_id(id, db: Session = Depends(get_db), current_user: schemas.
         'job_id': fl.job_id,
         'task': fl.task,
         'rounds': fl.epochs,
+        'global_model': fl.model,
+        'metrics': fl.dataset,
         'status': status,
         'download': fl.link,
         'ip': fl.address,
@@ -548,6 +550,8 @@ def get_all_trainings(db: Session = Depends(get_db), current_user: schemas.ShowU
             'job_id': elem.job_id,
             'task': elem.task,
             'rounds': elem.epochs,
+            'global_model': elem.model,
+            'metrics': elem.dataset,
             'status': status,
             'download': elem.link,
             'ip': elem.address,
@@ -583,7 +587,7 @@ async def uploade_dataset(dataset: str = Form(), desc: str = Form(), affil: str 
 # Get all the dataset for current user
 @app.get('/datasets')
 def get_datasets(db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
-    sets = db.query(models.Dataset.dataset, models.Dataset.description, models.Dataset.affiliation, models.Dataset.filetype, models.Dataset.datatype).filter(models.Dataset.owner_id==current_user['id']).all()
+    sets = db.query(models.Dataset.id, models.Dataset.dataset, models.Dataset.description, models.Dataset.affiliation, models.Dataset.filetype, models.Dataset.datatype).filter(models.Dataset.owner_id==current_user['id']).all()
     return sets
 
 # Get all datasets
