@@ -434,18 +434,21 @@ def training_connections(id, db: Session = Depends(get_db), current_user: schema
 # Delete fl training including container, image and data storaged in database
 @app.delete('/training/delete/{id}')
 def delete_training(id, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
-    img = db.query(models.LearningModel.image_name).filter(models.LearningModel.id==id).first()
+    img = db.query(models.LearningModel.image_name, models.LearningModel.container_id).filter(models.LearningModel.id==id).first()
+    cid = img.container_id
     name = img.image_name
-    if name is None:
+    if cid is None:
         return Response(status_code=status.HTTP_400_BAD_REQUEST, content='No such training found')
     try:
-        con = docker_cli.containers.get(name)
+        con = docker_cli.containers.get(cid)
         con.stop()
         con.remove()
     except NotFound as e:
         logging.getLogger('uvicorn.error').error(e)
     except APIError as e:
         logging.getLogger('uvicorn.error').error(e)
+    if name is None:
+        return Response(status_code=status.HTTP_400_BAD_REQUEST, content='No such training found')
     try:
         docker_cli.images.remove(name)
     except ImageNotFound as e:
