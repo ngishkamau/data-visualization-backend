@@ -6,5 +6,6 @@ fastapi-env
 .code
 .vscode
 
+nohup.out
 downloads
 trainings
