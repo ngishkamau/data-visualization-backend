@@ -107,4 +107,6 @@ class LearningModel(Base):
     tensorboard_port = Column(Integer)
     tensorboard_image = Column(String(100))
     tensorboard_container = Column(String(100))
+    global_model_port = Column(Integer)
+    global_model_container = Column(String(100))
     link = Column(String(100))

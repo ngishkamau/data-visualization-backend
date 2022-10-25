@@ -15,7 +15,6 @@ from sqlalchemy import func
 
 import uuid
 
-import tensorboard
 import docker
 import models
 import shutil
@@ -316,7 +315,7 @@ def run_training(id: int, job_id: str, name: str, ten_name: str, db: Session = D
     try:
         os.mknod(file_path + '/clients')
         server_port = get_free_port()
-        container = docker_cli.containers.run(image=server[0].id, name=name, detach=True, ports={8080: server_port}, volumes={file_path + '/clients': {'bind': '/server/clients', 'mode': 'rw'}, file_path + '/global_model': {'bind': '/server/global_model', 'mode': 'rw'}, file_path + '/flwr_logs': {'bind': '/server/flwr_logs', 'mode': 'rw'}})
+        container = docker_cli.containers.run(image=server[0].id, name=name, detach=True, ports={8080: server_port}, volumes={file_path + '/clients': {'bind': '/server/clients', 'mode': 'rw'}, file_path + '/global_model': {'bind': '/server/global_model', 'mode': 'rw'}, file_path + '/flwr_logs': {'bind': '/server/flwr_logs', 'mode': 'rw'}, '/etc/localtime': {'bind': '/etc/localtime', 'mode': 'ro'}})
         con_id = container.id
     except ContainerError as e:
         logging.getLogger('uvicorn.error').error(e)
@@ -340,7 +339,7 @@ def run_training(id: int, job_id: str, name: str, ten_name: str, db: Session = D
     ten_port: int = 0
     try:
         ten_port = get_free_port()
-        con = docker_cli.containers.run(image=ten[0].id, name=ten_name, detach=True, ports={8090: ten_port}, volumes={file_path + '/flwr_logs': {'bind': '/logs', 'mode': 'ro'}})
+        con = docker_cli.containers.run(image=ten[0].id, name=ten_name, detach=True, ports={8090: ten_port}, volumes={file_path + '/flwr_logs': {'bind': '/logs', 'mode': 'ro'}, '/etc/localtime': {'bind': '/etc/localtime', 'mode': 'ro'}})
         ten_id = con.id
     except ContainerError as e:
         logging.getLogger('uvicorn.error').error(e)
@@ -351,7 +350,23 @@ def run_training(id: int, job_id: str, name: str, ten_name: str, db: Session = D
     except APIError as e:
         logging.getLogger('uvicorn.error').error(e)
         return 
-    db.query(models.LearningModel).filter(models.LearningModel.id==id).update({models.LearningModel.container_id: con_id, models.LearningModel.port: server_port, models.LearningModel.tensorboard_container: ten_id, models.LearningModel.tensorboard_port: ten_port})
+    # Build global model download folder
+    gmod_id: str = ""
+    gmod_port: int = 0
+    try:
+        gmod_port = get_free_port()
+        con = docker_cli.containers.run(image="nginx:stable", name='global_model_' + name, detach=True, ports={80: gmod_port}, volumes={file_path + '/global_model': {'bind': '/usr/share/nginx/global_model', 'mode': 'ro'}, os.getcwd() + '/flwr_docker/global_model/global_model.conf': {'bind': '/etc/nginx/nginx.conf', 'mode': 'ro'}, '/etc/localtime': {'bind': '/etc/localtime', 'mode': 'ro'}})
+        gmod_id = con.id
+    except ContainerError as e:
+        logging.getLogger('uvicorn.error').error(e)
+        return
+    except ImageNotFound as e:
+        logging.getLogger('uvicorn.error').error(e)
+        return
+    except APIError as e:
+        logging.getLogger('uvicorn.error').error(e)
+        return 
+    db.query(models.LearningModel).filter(models.LearningModel.id==id).update({models.LearningModel.container_id: con_id, models.LearningModel.port: server_port, models.LearningModel.tensorboard_container: ten_id, models.LearningModel.tensorboard_port: ten_port, models.LearningModel.global_model_container: gmod_id, models.LearningModel.global_model_port: gmod_port})
     db.commit()
 
 @app.post('/start/training/server')
@@ -362,7 +377,7 @@ def start_training_server(request: schemas.FLModel, background_tasks: Background
     # build and run training 
     file2zip(os.getcwd() + f'/downloads/{current_user["id"]}_stored_files/{job_id}.zip', [os.getcwd() + '/flwr_docker/run.sh', os.getcwd() + '/flwr_docker/run.ps1', os.getcwd() + '/flwr_docker/client/Dockerfile', os.getcwd() + '/flwr_docker/client/client.py'])
     link = f'/download/{current_user["id"]}/{job_id}.zip'
-    new_fl = models.LearningModel(owner_id=current_user['id'], job_id=job_id, task=request.task.strip(), epochs=request.epochs, model=request.model.strip(), dataset=request.dataset.strip(), aggregation_approach=request.appr.strip(), image_name=name, container_id=None, address=get_host_ip(), port=None, link=link, tensorboard_port=None, tensorboard_image=ten_name, tensorboard_container=None)
+    new_fl = models.LearningModel(owner_id=current_user['id'], job_id=job_id, task=request.task.strip(), epochs=request.epochs, model=request.model.strip(), dataset=request.dataset.strip(), aggregation_approach=request.appr.strip(), port=None, address=get_host_ip(), image_name=name, container_id=None, link=link, tensorboard_port=None, tensorboard_image=ten_name, tensorboard_container=None, global_model_port=None, global_model_container=None)
     db.add(new_fl)
     db.commit()
     db.refresh(new_fl)
@@ -373,6 +388,7 @@ def start_training_server(request: schemas.FLModel, background_tasks: Background
         'job_id': job_id,
         'task': request.task.strip(),
         'rounds': request.epochs,
+        'appr': request.appr.strip(),
         'status': 'building',
         'global_model': request.model.strip(),
         'metrics': request.dataset.strip(),
@@ -450,45 +466,56 @@ def training_connections(id, db: Session = Depends(get_db), current_user: schema
 # Delete fl training including container, image and data storaged in database
 @app.delete('/training/delete/{id}')
 def delete_training(id, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
-    img = db.query(models.LearningModel.job_id, models.LearningModel.image_name, models.LearningModel.container_id, models.LearningModel.tensorboard_image, models.LearningModel.tensorboard_container).filter(models.LearningModel.id==id, models.LearningModel.owner_id==current_user["id"]).first()
+    img = db.query(models.LearningModel.job_id, models.LearningModel.image_name, models.LearningModel.container_id, models.LearningModel.tensorboard_image, models.LearningModel.tensorboard_container, models.LearningModel.global_model_container).filter(models.LearningModel.id==id, models.LearningModel.owner_id==current_user["id"]).first()
     if img is None:
         return Response(status_code=status.HTTP_400_BAD_REQUEST, content='No such training found')
-    job_id = img.job_id
-    # Delete container and image for training
-    cid = img.container_id
-    name = img.image_name
-    if cid is not None:
-        try:
-            con = docker_cli.containers.get(cid)
-            con.stop()
-            con.remove(force=True)
-        except NotFound as e:
-            logging.getLogger('uvicorn.error').error(e)
-        except APIError as e:
-            logging.getLogger('uvicorn.error').error(e)
-    if name is not None:
-        try:
-            docker_cli.images.remove(name)
-        except ImageNotFound as e:
-            logging.getLogger('uvicorn.error').error(e)
     # Delete container and image for tensorboard
     tcid = img.tensorboard_container
     tname = img.tensorboard_image
-    if tcid is not None:
+    if tcid or tname:
         try:
-            con = docker_cli.containers.get(tcid)
+            con = docker_cli.containers.get(tcid or tname)
             con.stop()
             con.remove(force=True)
         except NotFound as e:
             logging.getLogger('uvicorn.error').error(e)
         except APIError as e:
             logging.getLogger('uvicorn.error').error(e)
-    if tname is not None:
+    if tname:
         try:
             docker_cli.images.remove(tname)
         except ImageNotFound as e:
             logging.getLogger('uvicorn.error').error(e)
+    # Delete container for global models
+    gmcid = img.global_model_container
+    if gmcid:
+        try:
+            con = docker_cli.containers.get(gmcid)
+            con.stop()
+            con.remove(force=True)
+        except NotFound as e:
+            logging.getLogger('uvicorn.error').error(e)
+        except APIError as e:
+            logging.getLogger('uvicorn.error').error(e)
+    # Delete container and image for training
+    cid = img.container_id
+    name = img.image_name
+    if cid or name:
+        try:
+            con = docker_cli.containers.get(cid or name)
+            con.stop()
+            con.remove(force=True, v=True)
+        except NotFound as e:
+            logging.getLogger('uvicorn.error').error(e)
+        except APIError as e:
+            logging.getLogger('uvicorn.error').error(e)
+    if name:
+        try:
+            docker_cli.images.remove(name)
+        except ImageNotFound as e:
+            logging.getLogger('uvicorn.error').error(e)
     # Delete files
+    job_id = img.job_id
     try:
         os.remove(os.getcwd() + f'/downloads/{current_user["id"]}_stored_files/{job_id}.zip')
     except OSError as e:
@@ -520,13 +547,15 @@ def get_training_by_id(id, db: Session = Depends(get_db), current_user: schemas.
         'job_id': fl.job_id,
         'task': fl.task,
         'rounds': fl.epochs,
+        'appr': fl.aggregation_approach,
         'global_model': fl.model,
         'metrics': fl.dataset,
         'status': status,
         'download': fl.link,
         'ip': fl.address,
         'port': fl.port,
-        'tensorboard_port': fl.tensorboard_port
+        'tensorboard_port': fl.tensorboard_port,
+        'global_model_port': fl.global_model_port
     }, status_code=200)
 
 # Get all the fl training for current user
@@ -550,13 +579,15 @@ def get_all_trainings(db: Session = Depends(get_db), current_user: schemas.ShowU
             'job_id': elem.job_id,
             'task': elem.task,
             'rounds': elem.epochs,
+            'appr': elem.aggregation_approach,
             'global_model': elem.model,
             'metrics': elem.dataset,
             'status': status,
             'download': elem.link,
             'ip': elem.address,
             'port': elem.port,
-            'tensorboard_port': elem.tensorboard_port
+            'tensorboard_port': elem.tensorboard_port,
+            'global_model_port': elem.global_model_port
         }
         ret.append(item)
     return ret 
