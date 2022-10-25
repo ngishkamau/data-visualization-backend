@@ -630,9 +630,10 @@ def get_all_datasets(db: Session = Depends(get_db), current_user: schemas.ShowUs
 # Get dataset by id
 @app.get('/dataset/{id}')
 def get_dataset_by_id(id, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
-    sql = f'select dataset, description, affiliation, filetype, datatype, name, if(users.id={current_user["id"]}, concat("/download/", users.id, "_stored_files/", filename), "url to application") as url from datasets, users, file_collection where datasets.owner_id = users.id and datasets.filepath = file_collection.id and datasets.id = {id};'
+    # selece dataset, description, affiliation, filetype, datatype, name, if(users.id=2 or (select exists(select * from dataset_permission where did = 10 and uid = 2)), concat("/download/", users.id, "_stored_files/", filename), "url to application") as url from datasets, users, file_collection where datasets.owner_id = users.id and datasets.filepath = file_collection.id and datasets.id = 10;
+    sql = f'select dataset, description, affiliation, filetype, datatype, name, if(users.id={current_user["id"]} or (select exists(select * from dataset_permission where did = {id} and uid = {current_user["id"]})), concat("/download/", users.id, "_stored_files/", filename), "url to application") as url from datasets, users, file_collection where datasets.owner_id = users.id and datasets.filepath = file_collection.id and datasets.id = {id};'
     data = db.execute(sql).fetchone()
-    return data if data is not None else Response(status_code=400, content='No Existed Dataset')
+    return data if data else Response(status_code=status.HTTP_400_BAD_REQUEST, content='No Existed Dataset')
 
 # Delete dataset
 @app.delete('/dataset/delete/{id}')

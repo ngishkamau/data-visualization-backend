@@ -1,13 +1,8 @@
-from ast import Str
-from datetime import date, datetime
-from multiprocessing.forkserver import ForkServer
-# from turtle import update
-from xmlrpc.client import DateTime
-
-from sqlalchemy import Column, ForeignKey, Integer, String, Enum
-from sqlalchemy.orm import relationship
-
+from ast import For
 from database import Base
+from sqlalchemy.orm import relationship
+from sqlalchemy import Column, ForeignKey, Integer, String, Enum, Boolean
+
 
 class FileCollection(Base):
     __tablename__ = 'file_collection'
@@ -81,13 +76,20 @@ class Dataset(Base):
     __tablename__ = 'datasets'
 
     id = Column(Integer, primary_key=True, index=True)
-    dataset = Column(String(100))
     owner_id = Column(Integer, ForeignKey('users.id'))
+    dataset = Column(String(100))
     description = Column(String(255))
     affiliation = Column(String(255))
     filetype = Column(Enum('image', 'audio', 'video', 'text', 'csv'))
     filepath = Column(Integer, ForeignKey('file_collection.id'))
     datatype = Column(Enum('CV', 'NLP', 'ASR'))
+
+class DatasetPermission(Base):
+    __tablename__ = 'dataset_permission'
+
+    id = Column(Integer, primary_key=True, index=True)
+    did = Column(Integer, ForeignKey('datasets.id')) 
+    uid = Column(Integer, ForeignKey('users.id'))
 
 class LearningModel(Base):
     __tablename__ = 'learning_models'
