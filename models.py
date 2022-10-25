@@ -1,7 +1,7 @@
-from ast import For
 from database import Base
+from datetime import datetime
 from sqlalchemy.orm import relationship
-from sqlalchemy import Column, ForeignKey, Integer, String, Enum, Boolean
+from sqlalchemy import Column, ForeignKey, Integer, String, Enum, Boolean, Text, DateTime
 
 
 class FileCollection(Base):
@@ -112,3 +112,14 @@ class LearningModel(Base):
     global_model_port = Column(Integer)
     global_model_container = Column(String(100))
     link = Column(String(100))
+
+class InternalMessage(Base):
+    __tablename__ = 'internal_message'
+
+    id = Column(Integer, primary_key=True, index=True)
+    receiver = Column(Integer, ForeignKey('users.id'))
+    sender = Column(Integer, ForeignKey('users.id'))
+    title = Column(String(100))
+    content = Column(Text)
+    have_read = Column(Boolean, default=False)
+    send_at = Column(DateTime, default=datetime.now())

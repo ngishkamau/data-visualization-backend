@@ -1,20 +1,19 @@
-import logging
 import os
 import csv
-from datetime import datetime, timedelta
+import logging
 from typing import List
+from datetime import datetime, timedelta
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer 
 from fastapi.responses import Response, JSONResponse, FileResponse
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status, Form, BackgroundTasks
+
 from jose import JWTError, jwt
 from sqlalchemy import and_
 from sqlalchemy.orm import Session
-from sqlalchemy import func
 
 import uuid
-
 import docker
 import models
 import shutil
@@ -22,6 +21,7 @@ import hashing
 import schemas
 import requests
 from time import time
+from datetime import datetime
 from docker.errors import BuildError, APIError, ContainerError, ImageNotFound, NotFound
 from utils import get_free_port, get_host_ip, file2zip
 from database import SessionLocal, db_engine
@@ -30,6 +30,13 @@ from get_models import get_model_1, get_model_2, get_model_3
 SECRET_KEY = "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 120
+APPLICATION_DATA_PERMISSION = '''Hello {owner},
+here is {name}. I have a keen interest in your dataset of {dataset}.
+It is my pleasure to have the permission of your dataset. Thank you.
+
+Best wishes,
+{name}
+'''
 
 origins = [
     "*"
@@ -404,7 +411,7 @@ async def download(id, file, current_user: schemas.User = Depends(get_current_us
 
 # Get training status by id
 @app.get('/training/status/{id}')
-def training_status(id, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
+def training_status(id: int, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
     c = db.query(models.LearningModel.container_id).filter(models.LearningModel.id==id).first()
     cid = c.container_id
     if cid is None:
@@ -435,7 +442,7 @@ def training_all_status(db: Session = Depends(get_db), current_user: schemas.Use
 
 # Access to clients' ip addresses
 @app.get('/training/connections/{id}')
-def training_connections(id, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
+def training_connections(id: int, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
     name = db.query(models.LearningModel.job_id).filter(models.LearningModel.id==id).first()
     global ip_url
     ip_url = 'http://ip-api.com/json/'
@@ -465,7 +472,7 @@ def training_connections(id, db: Session = Depends(get_db), current_user: schema
 
 # Delete fl training including container, image and data storaged in database
 @app.delete('/training/delete/{id}')
-def delete_training(id, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+def delete_training(id: int, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
     img = db.query(models.LearningModel.job_id, models.LearningModel.image_name, models.LearningModel.container_id, models.LearningModel.tensorboard_image, models.LearningModel.tensorboard_container, models.LearningModel.global_model_container).filter(models.LearningModel.id==id, models.LearningModel.owner_id==current_user["id"]).first()
     if img is None:
         return Response(status_code=status.HTTP_400_BAD_REQUEST, content='No such training found')
@@ -531,7 +538,7 @@ def delete_training(id, db: Session = Depends(get_db), current_user: schemas.Sho
 
 # Get a fl training by id
 @app.get('/training/{id}')
-def get_training_by_id(id, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+def get_training_by_id(id: int, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
     fl = db.query(models.LearningModel).filter(models.LearningModel.id==id, models.LearningModel.owner_id==current_user["id"]).first()
     if fl is None:
         return Response(status_code=400, content='No such training found')
@@ -629,15 +636,15 @@ def get_all_datasets(db: Session = Depends(get_db), current_user: schemas.ShowUs
 
 # Get dataset by id
 @app.get('/dataset/{id}')
-def get_dataset_by_id(id, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
-    # selece dataset, description, affiliation, filetype, datatype, name, if(users.id=2 or (select exists(select * from dataset_permission where did = 10 and uid = 2)), concat("/download/", users.id, "_stored_files/", filename), "url to application") as url from datasets, users, file_collection where datasets.owner_id = users.id and datasets.filepath = file_collection.id and datasets.id = 10;
-    sql = f'select dataset, description, affiliation, filetype, datatype, name, if(users.id={current_user["id"]} or (select exists(select * from dataset_permission where did = {id} and uid = {current_user["id"]})), concat("/download/", users.id, "_stored_files/", filename), "url to application") as url from datasets, users, file_collection where datasets.owner_id = users.id and datasets.filepath = file_collection.id and datasets.id = {id};'
+def get_dataset_by_id(id: int, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+    # select dataset, description, affiliation, filetype, datatype, name, if(users.id=2 or (select exists(select * from dataset_permission where did = 10 and uid = 2)), concat("/download/", users.id, "_stored_files/", filename), "/dataset/permission/apply/10") as url from datasets, users, file_collection where datasets.owner_id = users.id and datasets.filepath = file_collection.id and datasets.id = 10;
+    sql = f'select dataset, description, affiliation, filetype, datatype, name, if(users.id={current_user["id"]} or (select exists(select * from dataset_permission where did = {id} and uid = {current_user["id"]})), concat("/download/", users.id, "_stored_files/", filename), "/dataset/permission/apply/{id}") as url from datasets, users, file_collection where datasets.owner_id = users.id and datasets.filepath = file_collection.id and datasets.id = {id};'
     data = db.execute(sql).fetchone()
     return data if data else Response(status_code=status.HTTP_400_BAD_REQUEST, content='No Existed Dataset')
 
 # Delete dataset
 @app.delete('/dataset/delete/{id}')
-def delete_dataset(id, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+def delete_dataset(id: int, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
     uid = current_user['id']
     data = db.query(models.Dataset).filter(models.Dataset.id==id).first()
     if data is None:
@@ -657,3 +664,16 @@ def delete_dataset(id, db: Session = Depends(get_db), current_user: schemas.Show
     if os.path.isfile(filepath):
         os.remove(filepath)
     return "Deleted dataset"
+
+# Apply for permission for dataset
+@app.get('/dataset/permission/apply/{did}')
+def ask_permission_by_did(did: int, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+    data = db.query(models.Dataset).fileter(models.Dataset.id==did).first()
+    if data is not None:
+        return Response(status_code=status.HTTP_400_BAD_REQUEST, content='No such data found')
+    owner = ''
+    new_msg = models.InternalMessage(receiver=data.owner_id, sender=current_user["id"], title=f'Apply for permission for dataset of {data.dataset}', content=APPLICATION_DATA_PERMISSION.format(owener=owner, name='', dataset=''), have_read=False, send_at=datetime.now())
+    db.add(new_msg)
+    db.commit()
+    db.refresh(new_msg)
+    return "Success to send application to the owner user"
