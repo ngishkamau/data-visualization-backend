@@ -1,3 +1,4 @@
+from genericpath import isfile
 import os
 import csv
 import logging
@@ -12,6 +13,7 @@ from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status, F
 from jose import JWTError, jwt
 from sqlalchemy import and_
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import exists
 
 import uuid
 import docker
@@ -22,17 +24,20 @@ import schemas
 import requests
 from time import time
 from datetime import datetime
-from docker.errors import BuildError, APIError, ContainerError, ImageNotFound, NotFound
-from utils import get_free_port, get_host_ip, file2zip
 from database import SessionLocal, db_engine
+from utils import get_free_port, get_host_ip, file2zip
+from docker.errors import BuildError, APIError, ContainerError, ImageNotFound, NotFound
 from get_models import get_model_1, get_model_2, get_model_3
 
 SECRET_KEY = "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 120
-APPLICATION_DATA_PERMISSION = '''Hello {owner},
-here is {name}. I have a keen interest in your dataset of {dataset}.
+APPLICATION_TITLE = 'Apply for permission for {typ} of {task}'
+APPLICATION_CONTENT = '''Hello {owner},
+here is {name}. I have a keen interest in your {typ} of {task}.
 It is my pleasure to have the permission of your dataset. Thank you.
+
+{link}
 
 Best wishes,
 {name}
@@ -301,6 +306,26 @@ async def file_access_remvove_decline(file_request_id: int, request: schemas.Fil
     db.commit()
     return "Updated"
 
+# Get internal messages
+@app.get('/message/notice')
+def get_message_title(db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
+    # select id, receiver, sender, title, have_read, unix_timestamp(send_at) as send_at from internal_message where receiver = 1 order by send_at desc;
+    sql = f'select id, receiver, sender, title, have_read, unix_timestamp(send_at) as send_at from internal_message where receiver = {current_user["id"]} order by send_at desc;'
+    msgs = db.execute(sql).fetchall()
+    return msgs
+
+# Get specific message by id
+@app.get('/message/content/{id}')
+def get_message_by_id(id: int, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
+    msg = db.query(models.InternalMessage).filter(models.InternalMessage.id==id, models.InternalMessage.receiver==current_user["id"]).first()
+    if msg is None:
+        return Response(status_code=status.HTTP_400_BAD_REQUEST, content='No such message found')
+    msg.have_read = True
+    ret = {'content': msg.content} 
+    db.commit()
+    return ret
+
+# Background task for building fl
 def run_training(id: int, job_id: str, name: str, ten_name: str, db: Session = Depends(get_db)):
     # Build fl training
     server: tuple = ()
@@ -599,11 +624,109 @@ def get_all_trainings(db: Session = Depends(get_db), current_user: schemas.ShowU
         ret.append(item)
     return ret 
 
+# Upload new model
+@app.post('/upload/model')
+async def upload_model(raw_file: UploadFile = File(), db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+    fs = await raw_file.read()
+    filename = 'model_' + current_user["name"] + '_' + str(hash(time())) + '_' + raw_file.filename
+    new_file = models.FileCollection(filename=filename, filesize=f'{len(fs)/1000} kb', user_id=current_user["id"])
+    # db.new(new_file)
+    db.add(new_file)
+    db.commit()
+    db.refresh(new_file)
+
+    file_location = os.path.join(os.getcwd() + f"/downloads/{current_user['id']}_stored_files/", filename)
+    with open(file_location, 'wb+') as file_obj:
+        file_obj.write(fs)
+
+    new_model = models.Model(filepath=new_file.id)
+    db.add(new_model)
+    db.commit()
+    db.refresh(new_model)
+
+    return "Success to upload dataset"
+
+# Get all the models for current user
+@app.get('/models')
+def get_models(db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+    return
+
+# Get all models 
+@app.get('/models/all')
+def get_all_models(db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+    return
+
+# Get model by id
+@app.get('/model/{id}')
+def get_model_by_id(id: int, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+    return
+
+# Delete model by id
+@app.delete('/model/delete/{id}')
+def delete_model(id: int, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+    uid = current_user["id"]
+    mod = db.query(models.Model).filter(models.Model.id==id).first()
+    if mod:
+        return Response(status_code=status.HTTP_400_BAD_REQUEST, content='No Existed Model')
+    fid = mod.filepath
+    f = db.query(models.FileCollection).filter(models.FileCollection.id==fid).first()
+    if not f:
+        return Response(status_code=status.HTTP_400_BAD_REQUEST, content='No Such File')
+    filename = f.filename
+    filepath = os.getcwd() + f'/download/{uid}_stored_files/' + filename
+    # Delete model
+    db.query(models.Model).filter(models.Model.id==id).delete()
+    db.commit()
+    # Delete file
+    db.query(models.FileCollection).filter(models.FileCollection.id==fid).delete()
+    db.commit()
+    if os.path.isfile(filepath):
+        os.remove(filepath)
+    return "Success to delete model"
+
+# Apply for permission for model
+@app.get('/model/permission/apply/{did}')
+def apply_model_permission_by_did(did: int, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+    data = db.query(models.Model.id, models.Model.task, models.Model.owner_id, models.User.name).join(models.User, models.Model.owner_id==models.User.id).filter(models.Model.id==did).first()
+    if not data:
+        return Response(status_code=status.HTTP_400_BAD_REQUEST, content='No such model found')
+    new_msg = models.InternalMessage(receiver=data.owner_id, sender=current_user["id"], title=APPLICATION_TITLE.format(typ='model', task=data.task), content=APPLICATION_CONTENT.format(owner=data.name, name=current_user["name"], typ='model', task=data.task, link=f'/model/permission/grant/{data.id}/{current_user["id"]}'), have_read=False, send_at=datetime.now())
+    db.add(new_msg)
+    db.commit()
+    db.refresh(new_msg)
+    return "Success to send application to the owner user"
+
+# Grant permission for model 
+@app.get('/model/permission/grant/{mid}/{uid}')
+def grant_model_permission(mid: int, uid: int, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+    ex_mid = db.query(db.query(models.Model.id).filter(models.Model.id==mid).exists()).scalar()
+    ex_uid = db.query(db.query(models.User.id).filter(models.User.id==uid).exists()).scalar()
+    if not ex_mid or not ex_uid:
+        return Response(status_code=status.HTTP_400_BAD_REQUEST, content='No such parameters')
+    exist = db.query(db.query(models.Model.id).filter(models.Model.id==mid, models.Dataset.owner_id==uid).exists()).scalar()
+    if exist:
+        return Response(status_code=status.HTTP_400_BAD_REQUEST, content='Uncorrect user id or model id')
+    new_perm = models.ModelPermission(mid=mid, uid=uid)
+    db.add(new_perm)
+    db.commit()
+    db.refresh(new_perm)
+    return "Success to grant permission"
+
+# Delete permission for model 
+@app.delete('/model/permission/delete/{mid}/{uid}')
+def delete_model_permission(mid: int, uid: int, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+    exist = db.query(db.query(models.ModelPermission.id).filter(models.ModelPermission.mid==mid, models.DatasetPermission.uid==uid).exists()).scalar()
+    if not exist:
+        return Response(status_code=status.HTTP_400_BAD_REQUEST, content='Uncorrect user id or model id')
+    db.query(models.ModelPermission).filter(models.ModelPermission.mid==mid, models.DatasetPermission.uid==uid).delete()
+    db.commit()
+    return "Success to delete permission"
+
 # Upload new dataset
 @app.post('/upload/dataset')
 async def uploade_dataset(dataset: str = Form(), desc: str = Form(), affil: str = Form(), file_type: str = Form(), raw_file: UploadFile = File(), datatype: str = Form(), db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
     fs = await raw_file.read()
-    filename = current_user["name"] + '_' + str(hash(time())) + '_' + raw_file.filename
+    filename = 'dataset_' + current_user["name"] + '_' + str(hash(time())) + '_' + raw_file.filename
     new_file = models.FileCollection(filename=filename, filesize=f'{len(fs)/1000} kb', user_id=current_user["id"])
     # db.new(new_file)
     db.add(new_file)
@@ -663,17 +786,42 @@ def delete_dataset(id: int, db: Session = Depends(get_db), current_user: schemas
     db.commit()
     if os.path.isfile(filepath):
         os.remove(filepath)
-    return "Deleted dataset"
+    return "Success to delete dataset"
 
 # Apply for permission for dataset
 @app.get('/dataset/permission/apply/{did}')
-def ask_permission_by_did(did: int, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
-    data = db.query(models.Dataset).fileter(models.Dataset.id==did).first()
-    if data is not None:
+def apply_dataset_permission_by_did(did: int, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+    data = db.query(models.Dataset.id, models.Dataset.dataset, models.Dataset.owner_id, models.User.name).join(models.User, models.Dataset.owner_id==models.User.id).filter(models.Dataset.id==did).first()
+    if data is None:
         return Response(status_code=status.HTTP_400_BAD_REQUEST, content='No such data found')
-    owner = ''
-    new_msg = models.InternalMessage(receiver=data.owner_id, sender=current_user["id"], title=f'Apply for permission for dataset of {data.dataset}', content=APPLICATION_DATA_PERMISSION.format(owener=owner, name='', dataset=''), have_read=False, send_at=datetime.now())
+    new_msg = models.InternalMessage(receiver=data.owner_id, sender=current_user["id"], title=APPLICATION_TITLE.format(typ='dataset', task=data.dataset), content=APPLICATION_CONTENT.format(owner=data.name, name=current_user["name"], typ='dataset', task=data.dataset, link=f'/dataset/permission/grant/{data.id}/{current_user["id"]}'), have_read=False, send_at=datetime.now())
     db.add(new_msg)
     db.commit()
     db.refresh(new_msg)
     return "Success to send application to the owner user"
+
+# Grant permission for dataset
+@app.get('/dataset/permission/grant/{did}/{uid}')
+def grant_dataset_permission(did: int, uid: int, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+    ex_did = db.query(db.query(models.Dataset.id).filter(models.Dataset.id==did).exists()).scalar()
+    ex_uid = db.query(db.query(models.User.id).filter(models.User.id==uid).exists()).scalar()
+    if not ex_did or not ex_uid:
+        return Response(status_code=status.HTTP_400_BAD_REQUEST, content='No such parameters')
+    exist = db.query(db.query(models.Dataset.id).filter(models.Dataset.id==did, models.Dataset.owner_id==uid).exists()).scalar()
+    if exist:
+        return Response(status_code=status.HTTP_400_BAD_REQUEST, content='Uncorrect user id or dataset id')
+    new_perm = models.DatasetPermission(did=did, uid=uid)
+    db.add(new_perm)
+    db.commit()
+    db.refresh(new_perm)
+    return "Success to grant permission"
+
+# Delete permission for dataset
+@app.delete('/dataset/permission/delete/{did}/{uid}')
+def delete_dataset_permission(did: int, uid: int, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+    exist = db.query(db.query(models.DatasetPermission.id).filter(models.DatasetPermission.did==did, models.DatasetPermission.uid==uid).exists()).scalar()
+    if not exist:
+        return Response(status_code=status.HTTP_400_BAD_REQUEST, content='Uncorrect user id or dataset id')
+    db.query(models.DatasetPermission).filter(models.DatasetPermission.did==did, models.DatasetPermission.uid==uid).delete()
+    db.commit()
+    return "Success to delete permission"

@@ -1,3 +1,4 @@
+from platform import architecture
 from database import Base
 from datetime import datetime
 from sqlalchemy.orm import relationship
@@ -45,14 +46,14 @@ class Rig(Base):
     longitude = Column(String(100))
     name = Column(String(100))
 
-class Model(Base):
-    __tablename__ = 'models'
+# class Model(Base):
+#     __tablename__ = 'models'
 
-    id = Column(Integer, primary_key=True, index=True)
-    file_id = Column(Integer, ForeignKey('file_collection.id'))
-    owner_id = Column(Integer, ForeignKey('users.id'))
-    rig_id = Column(Integer, ForeignKey('rigs.id'))
-    name = Column(String(100))
+#     id = Column(Integer, primary_key=True, index=True)
+#     file_id = Column(Integer, ForeignKey('file_collection.id'))
+#     owner_id = Column(Integer, ForeignKey('users.id'))
+#     rig_id = Column(Integer, ForeignKey('rigs.id'))
+#     name = Column(String(100))
 
 class ModelRequest(Base):
     __tablename__ = 'model_requests'
@@ -71,6 +72,23 @@ class RigRequest(Base):
     sender = Column(Integer)
     reciever = Column(Integer)
     status = Column(Integer)
+
+class Model(Base):
+    __tablename__ = 'models'
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_id = Column(Integer, ForeignKey('users.id'))
+    task = Column(String(100))
+    architecture = Column(String(100))
+    training_set = Column(String(100))
+    filepath = Column(Integer, ForeignKey('file_collection.id'))
+
+class ModelPermission(Base):
+    __tablename__ = 'model_permission'
+
+    id = Column(Integer, primary_key=True, index=True)
+    mid = Column(Integer, ForeignKey('models.id')) 
+    uid = Column(Integer, ForeignKey('users.id'))
 
 class Dataset(Base):
     __tablename__ = 'datasets'
