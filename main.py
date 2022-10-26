@@ -38,7 +38,7 @@ SIZE_TEXT = ['B', 'KB', 'MB', 'GB', 'TB']
 
 APPLICATION_PERMISSION_TITLE = 'Apply for permission for {typ} of {task}'
 APPLICATION_PERMISSION_CONTENT = '''<p>Hello {owner},</p>
-<p>Here is {name}. I have a keen interest in your {type} of {task}.It is my pleasure to have the permission of your dataset. Thank you.</p>
+<p>Here is {name}. I have a keen interest in your {typ} of {task}.It is my pleasure to have the permission of your dataset. Thank you.</p>
 <button style="border: 1px solid;padding: 0.5em 1em;background-color: white;border-radius: 0.2em;margin: 2em 0;"><a href="{link}">Click to Accept</a></button>
 <p>Best wishes,</p>
 <p>{name}</p>
