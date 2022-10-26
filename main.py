@@ -107,7 +107,6 @@ def verify_token(token:str,credentials_exception):
     except JWTError:
         raise credentials_exception
 
-
 models.Base.metadata.create_all(db_engine)
 
 def get_db():
@@ -662,20 +661,20 @@ async def upload_model(task: str = Form(), description: str = Form(), architectu
 # Get all the models for current user
 @app.get('/models')
 def get_models(db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
-    sets = db.query(models.Model.id, models.Model.task, models.Model.architecture, models.Model.training_set, models.FileCollection.filesize).join(models.FileCollection, models.Model.filepath==models.FileCollection.id).filter(models.Model.owner_id==current_user['id']).all()
+    sets = db.query(models.Model.id, models.Model.task, models.Model.architecture, models.Model.training_set, models.FileCollection.filesize, models.Model.description).join(models.FileCollection, models.Model.filepath==models.FileCollection.id).filter(models.Model.owner_id==current_user['id']).all()
     return sets
 
 # Get all models 
 @app.get('/models/all')
 def get_all_models(db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
-    sets = db.query(models.Model.id, models.Model.task, models.Model.architecture, models.Model.training_set, models.FileCollection.filesize, models.User.name).join(models.FileCollection, models.Model.filepath==models.FileCollection.id).join(models.User, models.Model.owner_id==models.User.id).all()
+    sets = db.query(models.Model.id, models.Model.task, models.Model.architecture, models.Model.training_set, models.FileCollection.filesize, models.Model.description, models.User.name).join(models.FileCollection, models.Model.filepath==models.FileCollection.id).join(models.User, models.Model.owner_id==models.User.id).all()
     return sets
 
 # Get model by id
 @app.get('/model/{id}')
 def get_model_by_id(id: int, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
-    # select task, architecture, training_set, name, if(users.id=2 or (select exists(select * from model_permission where mid = 10 and uid = 2)), concat("/download/", users.id, "_stored_files/", filename), "/model/permission/apply/10") as url from models, users, file_collection where models.owner_id = users.id and models.filepath = file_collection.id and models.id = 10;
-    sql = f'select task, architecture, training_set, name, if(users.id={current_user["id"]} or (select exists(select * from model_permission where mid = {id} and uid = {current_user["id"]})), concat("/download/", users.id, "_stored_files/", filename), "/model/permission/apply/{id}") as url from models, users, file_collection where models.owner_id = users.id and models.filepath = file_collection.id and models.id = {id};'
+    # select task, architecture, training_set, description, name, if(users.id=2 or (select exists(select * from model_permission where mid = 10 and uid = 2)), concat("/download/", users.id, "_stored_files/", filename), "/model/permission/apply/10") as url from models, users, file_collection where models.owner_id = users.id and models.filepath = file_collection.id and models.id = 10;
+    sql = f'select task, architecture, training_set, description, name, if(users.id={current_user["id"]} or (select exists(select * from model_permission where mid = {id} and uid = {current_user["id"]})), concat("/download/", users.id, "_stored_files/", filename), "/model/permission/apply/{id}") as url from models, users, file_collection where models.owner_id = users.id and models.filepath = file_collection.id and models.id = {id};'
     data = db.execute(sql).fetchone()
     return data if data else Response(status_code=status.HTTP_400_BAD_REQUEST, content='No Existed Model')
 
