@@ -142,3 +142,4 @@ class InternalMessage(Base):
     content = Column(Text)
     have_read = Column(Boolean, default=False)
     send_at = Column(DateTime, default=datetime.now())
+    link = Column(String(100))

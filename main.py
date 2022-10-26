@@ -39,7 +39,6 @@ SIZE_TEXT = ['B', 'KB', 'MB', 'GB', 'TB']
 APPLICATION_PERMISSION_TITLE = 'Apply for permission for {typ} of {task}'
 APPLICATION_PERMISSION_CONTENT = '''<p>Hello {owner},</p>
 <p>Here is {name}. I have a keen interest in your {typ} of {task}.It is my pleasure to have the permission of your dataset. Thank you.</p>
-<button style="border: 1px solid;padding: 0.5em 1em;background-color: white;border-radius: 0.2em;margin: 2em 0;"><a href="{link}">Click to Accept</a></button>
 <p>Best wishes,</p>
 <p>{name}</p>
 '''
@@ -47,7 +46,7 @@ APPLICATION_PERMISSION_CONTENT = '''<p>Hello {owner},</p>
 APPLICATION_TRAINING_TITLE = 'Training for FL {task}'
 APPLICATION_TRAINING_CONTENT = '''<p>Hello {name},</p>
 <p>Here is {owner}. My federated learning training of {task} is started. </p>
-<p>Could you please running local training with your dataset. The client's code is here <a href="{link}"></a>.</p>
+<p>Could you please running local training with your dataset.</p>
 <p>Best wishes,</p>
 <p>{owner}</p>
 '''
@@ -329,7 +328,10 @@ def get_message_by_id(id: int, db: Session = Depends(get_db), current_user: sche
     if msg is None:
         return Response(status_code=status.HTTP_400_BAD_REQUEST, content='No such message found')
     msg.have_read = True
-    ret = {'content': msg.content} 
+    ret = {
+        'content': msg.content,
+        'link': msg.link
+    } 
     db.commit()
     return ret
 
@@ -421,8 +423,8 @@ def start_training_server(request: schemas.FLModel, background_tasks: Background
     db.add(new_fl)
     db.commit()
     db.refresh(new_fl)
-    new_msg_one = models.InternalMessage(receiver=2, sender=current_user["id"], title=APPLICATION_TRAINING_TITLE.format(task=request.task.strip()), content=APPLICATION_TRAINING_CONTENT.format(owner=current_user["name"], name="testUser", task=request.task.strip(), link=f'http://161.97.133.43:8000{link}'), have_read=False, send_at=datetime.now())
-    new_msg_two = models.InternalMessage(receiver=3, sender=current_user["id"], title=APPLICATION_TRAINING_TITLE.format(task=request.task.strip()), content=APPLICATION_TRAINING_CONTENT.format(owner=current_user["name"], name="uis", typ='dataset', task=request.task.strip(), link=f'http://161.97.133.43:8000{link}'), have_read=False, send_at=datetime.now())
+    new_msg_one = models.InternalMessage(receiver=2, sender=current_user["id"], title=APPLICATION_TRAINING_TITLE.format(task=request.task.strip()), content=APPLICATION_TRAINING_CONTENT.format(owner=current_user["name"], name="testUser", task=request.task.strip()), have_read=False, send_at=datetime.now(), link=link)
+    new_msg_two = models.InternalMessage(receiver=3, sender=current_user["id"], title=APPLICATION_TRAINING_TITLE.format(task=request.task.strip()), content=APPLICATION_TRAINING_CONTENT.format(owner=current_user["name"], name="uis", typ='dataset', task=request.task.strip()), have_read=False, send_at=datetime.now(), link=link)
     db.add(new_msg_one)
     db.add(new_msg_two)
     db.commit()
@@ -825,7 +827,7 @@ def apply_dataset_permission_by_did(did: int, db: Session = Depends(get_db), cur
     data = db.query(models.Dataset.id, models.Dataset.dataset, models.Dataset.owner_id, models.User.name).join(models.User, models.Dataset.owner_id==models.User.id).filter(models.Dataset.id==did).first()
     if data is None:
         return Response(status_code=status.HTTP_400_BAD_REQUEST, content='No such data found')
-    new_msg = models.InternalMessage(receiver=data.owner_id, sender=current_user["id"], title=APPLICATION_PERMISSION_TITLE.format(typ='dataset', task=data.dataset), content=APPLICATION_PERMISSION_CONTENT.format(owner=data.name, name=current_user["name"], typ='dataset', task=data.dataset, link=f'http://161.97.133.43:8000/dataset/permission/grant/{data.id}/{current_user["id"]}'), have_read=False, send_at=datetime.now())
+    new_msg = models.InternalMessage(receiver=data.owner_id, sender=current_user["id"], title=APPLICATION_PERMISSION_TITLE.format(typ='dataset', task=data.dataset), content=APPLICATION_PERMISSION_CONTENT.format(owner=data.name, name=current_user["name"], typ='dataset', task=data.dataset), have_read=False, send_at=datetime.now(), link=f'/dataset/permission/grant/{data.id}/{current_user["id"]}')
     db.add(new_msg)
     db.commit()
     db.refresh(new_msg)
