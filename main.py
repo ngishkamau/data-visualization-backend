@@ -316,8 +316,8 @@ async def file_access_remvove_decline(file_request_id: int, request: schemas.Fil
 # Get internal messages
 @app.get('/message/notice')
 def get_message_title(db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
-    # select id, receiver, sender, title, have_read, unix_timestamp(send_at) as send_at from internal_message where receiver = 1 order by send_at desc;
-    sql = f'select id, receiver, sender, title, have_read, unix_timestamp(send_at) as send_at from internal_message where receiver = {current_user["id"]} order by send_at desc;'
+    # select internal_message.id, sub.receiver, users.name as sender, title, internal_message.have_read, unix_timestamp(send_at) as send_at from internal_message, users, (select internal_message.id, users.name as receiver, sender from internal_message, users where receiver = users.id and receiver = 1) as sub where internal_message.id = sub.id and sub.sender = users.id order by internal_message.send_at desc limit 5;
+    sql = f'select internal_message.id, sub.receiver, users.name as sender, title, internal_message.have_read, unix_timestamp(send_at) as send_at from internal_message, users, (select internal_message.id, users.name as receiver, sender from internal_message, users where receiver = users.id and receiver = {current_user["id"]}) as sub where internal_message.id = sub.id and sub.sender = users.id order by internal_message.send_at desc limit 5;'
     msgs = db.execute(sql).fetchall()
     return msgs
 
