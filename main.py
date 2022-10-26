@@ -745,6 +745,7 @@ async def uploade_dataset(dataset: str = Form(), desc: str = Form(), affil: str 
     fs = await raw_file.read()
     filename = 'dataset_' + current_user["name"] + '_' + str(hash(time())) + '_' + raw_file.filename
     cnt = 0 
+    flen = float(len(fs))
     while flen / 1024 > 1: 
         flen /= 1024
         cnt += 1
