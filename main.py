@@ -446,7 +446,8 @@ def start_training_server(request: schemas.FLModel, background_tasks: Background
 @app.get('/download/{id}/{file}')
 async def download(id, file, current_user: schemas.User = Depends(get_current_user)):
     # return FileResponse(os.getcwd() + '/downloads/' + file, filename=file, background=BackgroundTask(lambda: os.remove(os.getcwd() + '/downloads/' + file)))
-    path = os.getcwd() + '/downloads/' + id + '_stored_files/' + file
+    path = os.getcwd() + f'/downloads/{id}_stored_files/{file}'
+    print(path)
     if not os.path.isfile(path):
         return Response(status_code=status.HTTP_400_BAD_REQUEST, content='No such file')
     return FileResponse(path, filename=file)
