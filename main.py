@@ -418,7 +418,7 @@ def start_training_server(request: schemas.FLModel, background_tasks: Background
     job_id = str(uuid.uuid5(uuid.NAMESPACE_URL, name))
     # build and run training 
     file2zip(os.getcwd() + f'/downloads/{current_user["id"]}_stored_files/{job_id}.zip', [os.getcwd() + '/flwr_docker/run.sh', os.getcwd() + '/flwr_docker/run.ps1', os.getcwd() + '/flwr_docker/client/Dockerfile', os.getcwd() + '/flwr_docker/client/client.py'])
-    link = f'/download/{current_user["id"]}/{job_id}.zip'
+    link = f'/download/{current_user["id"]}_stored_files/{job_id}.zip'
     new_fl = models.LearningModel(owner_id=current_user['id'], job_id=job_id, task=request.task.strip(), epochs=request.epochs, model=request.model.strip(), dataset=request.dataset.strip(), aggregation_approach=request.appr.strip(), port=None, address=get_host_ip(), image_name=name, container_id=None, link=link, tensorboard_port=None, tensorboard_image=ten_name, tensorboard_container=None, global_model_port=None, global_model_container=None)
     db.add(new_fl)
     db.commit()
