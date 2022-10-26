@@ -43,7 +43,7 @@ APPLICATION_CONTENT = '''
     <p>Here is {name}. I have a keen interest in your {typ} of {task}.
     It is my pleasure to have the permission of your dataset. Thank you.</p >
     <button style="border: 1px solid;padding: 0.5em 1em;background-color: white;border-radius: 0.2em;margin: 2em 0;">
-        <a href="{link}">Click to</ a>
+        <a href="{link}">Click to</a>
     </button>
     <p>Best wishes,</p >
     <p>{name}</p >
@@ -633,7 +633,7 @@ def get_all_trainings(db: Session = Depends(get_db), current_user: schemas.ShowU
 
 # Upload new model
 @app.post('/upload/model')
-async def upload_model(task: str = Form(), architecture: str = Form(), training_set: str = Form(), raw_file: UploadFile = File(), db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+async def upload_model(task: str = Form(), description: str = Form(), architecture: str = Form(), training_set: str = Form(), raw_file: UploadFile = File(), db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
     fs = await raw_file.read()
     filename = 'model_' + current_user["name"] + '_' + str(hash(time())) + '_' + raw_file.filename
     flen = float(len(fs))
@@ -652,7 +652,7 @@ async def upload_model(task: str = Form(), architecture: str = Form(), training_
     with open(file_location, 'wb+') as file_obj:
         file_obj.write(fs)
 
-    new_model = models.Model(task=task.strip(), architecture=architecture.strip(), training_set=training_set.strip(), filepath=new_file.id, owner_id=current_user["id"])
+    new_model = models.Model(task=task.strip(), description=description.strip(), architecture=architecture.strip(), training_set=training_set.strip(), filepath=new_file.id, owner_id=current_user["id"])
     db.add(new_model)
     db.commit()
     db.refresh(new_model)
