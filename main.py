@@ -11,6 +11,7 @@ from fastapi.responses import Response, JSONResponse, FileResponse
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status, Form, BackgroundTasks
 
 from jose import JWTError, jwt
+from numpy import double
 from sqlalchemy import and_
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import exists
@@ -32,15 +33,21 @@ from get_models import get_model_1, get_model_2, get_model_3
 SECRET_KEY = "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 120
+
+SIZE_TEXT = ['B', 'KB', 'MB', 'GB', 'TB']
+
 APPLICATION_TITLE = 'Apply for permission for {typ} of {task}'
-APPLICATION_CONTENT = '''Hello {owner},
-here is {name}. I have a keen interest in your {typ} of {task}.
-It is my pleasure to have the permission of your dataset. Thank you.
-
-{link}
-
-Best wishes,
-{name}
+APPLICATION_CONTENT = '''
+<div>
+    <p>Hello {owner},</p >
+    <p>Here is {name}. I have a keen interest in your {typ} of {task}.
+    It is my pleasure to have the permission of your dataset. Thank you.</p >
+    <button style="border: 1px solid;padding: 0.5em 1em;background-color: white;border-radius: 0.2em;margin: 2em 0;">
+        < a href="{link}">Click to</ a>
+    </button>
+    <p>Best wishes,</p >
+    <p>{name}</p >
+</div>
 '''
 
 origins = [
@@ -626,10 +633,16 @@ def get_all_trainings(db: Session = Depends(get_db), current_user: schemas.ShowU
 
 # Upload new model
 @app.post('/upload/model')
-async def upload_model(raw_file: UploadFile = File(), db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+async def upload_model(task: str = Form(), architecture: str = Form(), training_set: str = Form(), raw_file: UploadFile = File(), db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
     fs = await raw_file.read()
     filename = 'model_' + current_user["name"] + '_' + str(hash(time())) + '_' + raw_file.filename
-    new_file = models.FileCollection(filename=filename, filesize=f'{len(fs)/1000} kb', user_id=current_user["id"])
+    flen = float(len(fs))
+    cnt = 0 
+    while flen / 1024 > 1: 
+        flen /= 1024
+        cnt += 1
+    flen = round(flen, 2)
+    new_file = models.FileCollection(filename=filename, filesize=f'{flen} {SIZE_TEXT[cnt]}', user_id=current_user["id"])
     # db.new(new_file)
     db.add(new_file)
     db.commit()
@@ -639,7 +652,7 @@ async def upload_model(raw_file: UploadFile = File(), db: Session = Depends(get_
     with open(file_location, 'wb+') as file_obj:
         file_obj.write(fs)
 
-    new_model = models.Model(filepath=new_file.id)
+    new_model = models.Model(task=task.strip(), architecture=architecture.strip(), training_set=training_set.strip(), filepath=new_file.id, owner_id=current_user["id"])
     db.add(new_model)
     db.commit()
     db.refresh(new_model)
@@ -649,31 +662,35 @@ async def upload_model(raw_file: UploadFile = File(), db: Session = Depends(get_
 # Get all the models for current user
 @app.get('/models')
 def get_models(db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
-    return
+    sets = db.query(models.Model.id, models.Model.task, models.Model.architecture, models.Model.training_set, models.FileCollection.filesize).join(models.FileCollection, models.Model.filepath==models.FileCollection.id).filter(models.Model.owner_id==current_user['id']).all()
+    return sets
 
 # Get all models 
 @app.get('/models/all')
 def get_all_models(db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
-    return
+    sets = db.query(models.Model.id, models.Model.task, models.Model.architecture, models.Model.training_set, models.FileCollection.filesize, models.User.name).join(models.FileCollection, models.Model.filepath==models.FileCollection.id).join(models.User, models.Model.owner_id==models.User.id).all()
+    return sets
 
 # Get model by id
 @app.get('/model/{id}')
 def get_model_by_id(id: int, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
-    return
+    # select task, architecture, training_set, name, if(users.id=2 or (select exists(select * from model_permission where mid = 10 and uid = 2)), concat("/download/", users.id, "_stored_files/", filename), "/model/permission/apply/10") as url from models, users, file_collection where models.owner_id = users.id and models.filepath = file_collection.id and models.id = 10;
+    sql = f'select task, architecture, training_set, name, if(users.id={current_user["id"]} or (select exists(select * from model_permission where mid = {id} and uid = {current_user["id"]})), concat("/download/", users.id, "_stored_files/", filename), "/model/permission/apply/{id}") as url from models, users, file_collection where models.owner_id = users.id and models.filepath = file_collection.id and models.id = {id};'
+    data = db.execute(sql).fetchone()
+    return data if data else Response(status_code=status.HTTP_400_BAD_REQUEST, content='No Existed Model')
 
 # Delete model by id
 @app.delete('/model/delete/{id}')
 def delete_model(id: int, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
-    uid = current_user["id"]
-    mod = db.query(models.Model).filter(models.Model.id==id).first()
-    if mod:
+    mod = db.query(models.Model).filter(models.Model.id==id, models.Model.owner_id==current_user["id"]).first()
+    if not mod:
         return Response(status_code=status.HTTP_400_BAD_REQUEST, content='No Existed Model')
     fid = mod.filepath
     f = db.query(models.FileCollection).filter(models.FileCollection.id==fid).first()
     if not f:
         return Response(status_code=status.HTTP_400_BAD_REQUEST, content='No Such File')
     filename = f.filename
-    filepath = os.getcwd() + f'/download/{uid}_stored_files/' + filename
+    filepath = os.getcwd() + f'/download/{current_user["id"]}_stored_files/' + filename
     # Delete model
     db.query(models.Model).filter(models.Model.id==id).delete()
     db.commit()
@@ -685,9 +702,9 @@ def delete_model(id: int, db: Session = Depends(get_db), current_user: schemas.S
     return "Success to delete model"
 
 # Apply for permission for model
-@app.get('/model/permission/apply/{did}')
-def apply_model_permission_by_did(did: int, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
-    data = db.query(models.Model.id, models.Model.task, models.Model.owner_id, models.User.name).join(models.User, models.Model.owner_id==models.User.id).filter(models.Model.id==did).first()
+@app.get('/model/permission/apply/{mid}')
+def apply_model_permission_by_did(mid: int, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
+    data = db.query(models.Model.id, models.Model.task, models.Model.owner_id, models.User.name).join(models.User, models.Model.owner_id==models.User.id).filter(models.Model.id==mid).first()
     if not data:
         return Response(status_code=status.HTTP_400_BAD_REQUEST, content='No such model found')
     new_msg = models.InternalMessage(receiver=data.owner_id, sender=current_user["id"], title=APPLICATION_TITLE.format(typ='model', task=data.task), content=APPLICATION_CONTENT.format(owner=data.name, name=current_user["name"], typ='model', task=data.task, link=f'/model/permission/grant/{data.id}/{current_user["id"]}'), have_read=False, send_at=datetime.now())
@@ -715,10 +732,10 @@ def grant_model_permission(mid: int, uid: int, db: Session = Depends(get_db), cu
 # Delete permission for model 
 @app.delete('/model/permission/delete/{mid}/{uid}')
 def delete_model_permission(mid: int, uid: int, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
-    exist = db.query(db.query(models.ModelPermission.id).filter(models.ModelPermission.mid==mid, models.DatasetPermission.uid==uid).exists()).scalar()
+    exist = db.query(db.query(models.ModelPermission.id).filter(models.ModelPermission.mid==mid, models.ModelPermission.uid==uid).exists()).scalar()
     if not exist:
         return Response(status_code=status.HTTP_400_BAD_REQUEST, content='Uncorrect user id or model id')
-    db.query(models.ModelPermission).filter(models.ModelPermission.mid==mid, models.DatasetPermission.uid==uid).delete()
+    db.query(models.ModelPermission).filter(models.ModelPermission.mid==mid, models.ModelPermission.uid==uid).delete()
     db.commit()
     return "Success to delete permission"
 
@@ -727,7 +744,12 @@ def delete_model_permission(mid: int, uid: int, db: Session = Depends(get_db), c
 async def uploade_dataset(dataset: str = Form(), desc: str = Form(), affil: str = Form(), file_type: str = Form(), raw_file: UploadFile = File(), datatype: str = Form(), db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
     fs = await raw_file.read()
     filename = 'dataset_' + current_user["name"] + '_' + str(hash(time())) + '_' + raw_file.filename
-    new_file = models.FileCollection(filename=filename, filesize=f'{len(fs)/1000} kb', user_id=current_user["id"])
+    cnt = 0 
+    while flen / 1024 > 1: 
+        flen /= 1024
+        cnt += 1
+    flen = round(flen, 2)
+    new_file = models.FileCollection(filename=filename, filesize=f'{flen} {SIZE_TEXT[cnt]}', user_id=current_user["id"])
     # db.new(new_file)
     db.add(new_file)
     db.commit()
@@ -769,7 +791,7 @@ def get_dataset_by_id(id: int, db: Session = Depends(get_db), current_user: sche
 @app.delete('/dataset/delete/{id}')
 def delete_dataset(id: int, db: Session = Depends(get_db), current_user: schemas.ShowUser = Depends(get_current_user)):
     uid = current_user['id']
-    data = db.query(models.Dataset).filter(models.Dataset.id==id).first()
+    data = db.query(models.Dataset).filter(models.Dataset.id==id, models.Dataset.owner_id==current_user["id"]).first()
     if data is None:
         return Response(status_code=400, content='No Existed Dataset')
     fid = data.filepath
