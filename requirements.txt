@@ -1,4 +1,5 @@
 absl-py==1.2.0
+aiogrpc==1.8
 altair==4.2.0
 anyio==3.6.1
 arabic-reshaper==2.1.4
@@ -11,11 +12,13 @@ blinker==1.5
 cachetools==5.2.0
 certifi==2022.9.14
 cffi==1.15.1
+chardet==3.0.4
 charset-normalizer==2.1.1
 click==8.1.3
 colorama==0.4.5
 commonmark==0.9.1
 contourpy==1.0.5
+CouchDB==1.2
 cryptography==38.0.1
 cssselect2==0.7.0
 cycler==0.11.0
@@ -25,6 +28,7 @@ docker==6.0.0
 ecdsa==0.18.0
 email-validator==1.3.0
 entrypoints==0.4
+fabric-sdk-py==1.0.0
 fastapi==0.85.0
 flatbuffers==22.9.24
 fonttools==4.37.3
@@ -39,8 +43,9 @@ greenlet==1.1.3
 grpcio==1.49.1
 h11==0.13.0
 h5py==3.7.0
+hkdf==0.0.3
 html5lib==1.1
-idna==3.4
+idna==2.7
 imageio==2.22.0
 importlib-metadata==4.12.0
 importlib-resources==5.9.0
@@ -50,6 +55,7 @@ jsonschema==4.16.0
 keras==2.10.0
 Keras-Preprocessing==1.1.2
 kiwisolver==1.4.4
+lark-parser==0.7.1
 libclang==14.0.6
 lxml==4.9.1
 Markdown==3.4.1
@@ -71,6 +77,7 @@ pyarrow==9.0.0
 pyasn1==0.4.8
 pyasn1-modules==0.2.8
 pycparser==2.21
+pycryptodomex==3.15.0
 pydantic==1.10.2
 pydeck==0.8.0b3
 Pygments==2.13.0
@@ -81,6 +88,7 @@ PyMySQL==1.0.2
 pyparsing==3.0.9
 PyPDF3==1.0.6
 pyrsistent==0.18.1
+pysha3==1.0b1
 python-bidi==0.4.2
 python-dateutil==2.8.2
 python-jose==3.3.0
@@ -91,10 +99,11 @@ PyWavelets==1.4.1
 PyYAML==6.0
 qrcode==7.3.1
 reportlab==3.6.11
-requests==2.28.1
+requests==2.20.0
 requests-oauthlib==1.3.1
 rich==12.5.1
 rsa==4.9
+Rx==3.2.0
 scikit-image==0.18.1
 scikit-learn==1.1.2
 scipy==1.8.1
@@ -124,7 +133,7 @@ typing_extensions==4.3.0
 tzdata==2022.2
 tzlocal==4.2
 uritools==4.0.0
-urllib3==1.26.12
+urllib3==1.24.3
 uvicorn==0.18.3
 validators==0.20.0
 watchdog==2.1.9

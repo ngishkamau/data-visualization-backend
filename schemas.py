@@ -17,6 +17,7 @@ class User(BaseModel):
     name: str
     email: EmailStr
     password: str
+    is_org: bool
 
 class ShowUser(BaseModel):
     id: int

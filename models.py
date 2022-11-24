@@ -23,6 +23,7 @@ class User(Base):
     name = Column(String(100))
     email = Column(String(100))
     password = Column(String(100))
+    role = Column(String(100))
 
     file_collection = relationship('FileCollection', back_populates="uploaded_by")
 

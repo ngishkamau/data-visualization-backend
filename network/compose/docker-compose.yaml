@@ -1,0 +1,108 @@
+version: '2'
+
+networks:
+  network:
+
+
+services:
+  council.davifn.net:
+    container_name: council.davifn.net
+    extends:
+      file: docker-base.yaml
+      service: ca-base
+    command: sh -c 'fabric-ca-server start -d -b ca-admin:ca-adminpw --port 7050'
+    environment:
+      - FABRIC_CA_SERVER_CSR_CN=council.davifn.net
+      - FABRIC_CA_SERVER_CSR_HOSTS=council.davifn.net
+    volumes:
+      - ${LOCAL_CA_PATH}/council.davifn.net/ca:${DOCKER_CA_PATH}/ca
+    ports:
+      - 7050:7050
+
+  orderer.davifn.net:
+    container_name: orderer.davifn.net
+    extends:
+      file: docker-base.yaml
+      service: ca-base
+    command: sh -c 'fabric-ca-server start -d -b ca-admin:ca-adminpw --port 7050'
+    environment:
+      - FABRIC_CA_SERVER_CSR_CN=orderer.davifn.net
+      - FABRIC_CA_SERVER_CSR_HOSTS=orderer.davifn.net
+    volumes:
+      - ${LOCAL_CA_PATH}/orderer.davifn.net/ca:${DOCKER_CA_PATH}/ca
+    ports:
+      - 7150:7050
+
+  soft.davifn.net:
+    container_name: soft.davifn.net
+    extends:
+      file: docker-base.yaml
+      service: ca-base
+    command: sh -c 'fabric-ca-server start -d -b ca-admin:ca-adminpw --port 7050'
+    environment:
+      - FABRIC_CA_SERVER_CSR_CN=soft.davifn.net
+      - FABRIC_CA_SERVER_CSR_HOSTS=soft.davifn.net
+    volumes:
+      - ${LOCAL_CA_PATH}/soft.davifn.net/ca:${DOCKER_CA_PATH}/ca
+    ports:
+      - 7250:7050
+
+  web.davifn.net:
+    container_name: web.davifn.net
+    extends:
+      file: docker-base.yaml
+      service: ca-base
+    command: sh -c 'fabric-ca-server start -d -b ca-admin:ca-adminpw --port 7050'
+    environment:
+      - FABRIC_CA_SERVER_CSR_CN=web.davifn.net
+      - FABRIC_CA_SERVER_CSR_HOSTS=web.davifn.net
+    volumes:
+      - ${LOCAL_CA_PATH}/web.davifn.net/ca:${DOCKER_CA_PATH}/ca
+    ports:
+      - 7350:7050
+
+  peer1.soft.davifn.net:
+    container_name: peer1.soft.davifn.net
+    extends:
+      file: docker-base.yaml
+      service: peer-base
+    environment:
+      - CORE_PEER_ID=peer1.soft.davifn.net
+      - CORE_PEER_ADDRESS=peer1.soft.davifn.net:7051
+      - CORE_PEER_LOCALMSPID=softMSP
+      - CORE_PEER_GOSSIP_EXTERNALENDPOINT=peer1.soft.davifn.net:7051
+    volumes:
+      - ${LOCAL_CA_PATH}/soft.davifn.net/registers/peer1:${DOCKER_CA_PATH}/peer
+    ports:
+      - 7251:7051
+
+  peer1.web.davifn.net:
+    container_name: peer1.web.davifn.net
+    extends:
+      file: docker-base.yaml
+      service: peer-base
+    environment:
+      - CORE_PEER_ID=peer1.web.davifn.net
+      - CORE_PEER_ADDRESS=peer1.web.davifn.net:7051
+      - CORE_PEER_LOCALMSPID=webMSP
+      - CORE_PEER_GOSSIP_EXTERNALENDPOINT=peer1.web.davifn.net:7051
+    volumes:
+      - ${LOCAL_CA_PATH}/web.davifn.net/registers/peer1:${DOCKER_CA_PATH}/peer
+    ports:
+      - 7351:7051
+
+  orderer1.council.davifn.net:
+    container_name: orderer1.council.davifn.net
+    extends:
+      file: docker-base.yaml
+      service: orderer-base
+    environment:
+      - ORDERER_HOST=orderer1.council.davifn.net
+      - ORDERER_GENERAL_LOCALMSPID=councilMSP
+      - ORDERER_GENERAL_LISTENPORT=7051
+    volumes:
+      - ${LOCAL_CA_PATH}/council.davifn.net/registers/orderer1:${DOCKER_CA_PATH}/orderer
+    ports:
+      - 7051:7051
+      - 7052:8888
+      - 7053:9999

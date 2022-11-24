@@ -119,7 +119,7 @@ def get_db():
 
 @app.post('/user')
 def create_user(request: schemas.User,db: Session = Depends(get_db)):
-    new_user = models.User(name=request.name,email=request.email, password=hashing.Hash.bcrypt(request.password))
+    new_user = models.User(name=request.name,email=request.email, password=hashing.Hash.bcrypt(request.password), role='Admin' if request.is_org is True else 'User')
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
@@ -858,3 +858,8 @@ def delete_dataset_permission(did: int, uid: int, db: Session = Depends(get_db),
     db.query(models.DatasetPermission).filter(models.DatasetPermission.did==did, models.DatasetPermission.uid==uid).delete()
     db.commit()
     return "Success to delete permission"
+
+# Create a new organization
+@app.post('/organization')
+def create_organization():
+    return
