@@ -1,10 +1,11 @@
-from typing import List, Optional
+from ast import For
+from typing import List, Optional, Union
 
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 
 
 class FileCollection(BaseModel):
-    id: int
+    id: Union[int, None] = None
     filename: str
     filesize: str
 
@@ -12,15 +13,16 @@ class FileCollection(BaseModel):
         orm_mode = True
 
 class User(BaseModel):
-    id: int
+    id: Union[int, None] = None
     name: str
-    email: str
+    email: EmailStr
     password: str
+    is_org: bool
 
 class ShowUser(BaseModel):
     id: int
     name: str
-    email: str
+    email: EmailStr
     file_collection : List[FileCollection] =[]
     class Config():
         orm_mode = True
@@ -56,3 +58,10 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     email: Optional[str] = None
+
+class FLModel(BaseModel):
+    task: str
+    epochs: int
+    model: str
+    dataset: str
+    appr: str

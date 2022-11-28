@@ -1,11 +1,8 @@
-from datetime import date, datetime
-# from turtle import update
-from xmlrpc.client import DateTime
-
-from sqlalchemy import Column, ForeignKey, Integer, String
-from sqlalchemy.orm import relationship
-
+from platform import architecture
 from database import Base
+from datetime import datetime
+from sqlalchemy.orm import relationship
+from sqlalchemy import Column, ForeignKey, Integer, String, Enum, Boolean, Text, DateTime
 
 
 class FileCollection(Base):
@@ -26,6 +23,7 @@ class User(Base):
     name = Column(String(100))
     email = Column(String(100))
     password = Column(String(100))
+    role = Column(String(100))
 
     file_collection = relationship('FileCollection', back_populates="uploaded_by")
 
@@ -49,14 +47,14 @@ class Rig(Base):
     longitude = Column(String(100))
     name = Column(String(100))
 
-class Model(Base):
-    __tablename__ = 'models'
+# class Model(Base):
+#     __tablename__ = 'models'
 
-    id = Column(Integer, primary_key=True, index=True)
-    file_id = Column(Integer, ForeignKey('file_collection.id'))
-    owner_id = Column(Integer, ForeignKey('users.id'))
-    rig_id = Column(Integer, ForeignKey('rigs.id'))
-    name = Column(String(100))
+#     id = Column(Integer, primary_key=True, index=True)
+#     file_id = Column(Integer, ForeignKey('file_collection.id'))
+#     owner_id = Column(Integer, ForeignKey('users.id'))
+#     rig_id = Column(Integer, ForeignKey('rigs.id'))
+#     name = Column(String(100))
 
 class ModelRequest(Base):
     __tablename__ = 'model_requests'
@@ -75,3 +73,74 @@ class RigRequest(Base):
     sender = Column(Integer)
     reciever = Column(Integer)
     status = Column(Integer)
+
+class Model(Base):
+    __tablename__ = 'models'
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_id = Column(Integer, ForeignKey('users.id'))
+    task = Column(String(100))
+    description = Column(Text)
+    architecture = Column(String(100))
+    training_set = Column(String(100))
+    filepath = Column(Integer, ForeignKey('file_collection.id'))
+
+class ModelPermission(Base):
+    __tablename__ = 'model_permission'
+
+    id = Column(Integer, primary_key=True, index=True)
+    mid = Column(Integer, ForeignKey('models.id')) 
+    uid = Column(Integer, ForeignKey('users.id'))
+
+class Dataset(Base):
+    __tablename__ = 'datasets'
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_id = Column(Integer, ForeignKey('users.id'))
+    dataset = Column(String(100))
+    description = Column(Text)
+    affiliation = Column(String(255))
+    filetype = Column(Enum('image', 'audio', 'video', 'text', 'csv'))
+    filepath = Column(Integer, ForeignKey('file_collection.id'))
+    datatype = Column(Enum('CV', 'NLP', 'ASR'))
+
+class DatasetPermission(Base):
+    __tablename__ = 'dataset_permission'
+
+    id = Column(Integer, primary_key=True, index=True)
+    did = Column(Integer, ForeignKey('datasets.id')) 
+    uid = Column(Integer, ForeignKey('users.id'))
+
+class LearningModel(Base):
+    __tablename__ = 'learning_models'
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_id = Column(Integer, ForeignKey('users.id'))
+    job_id = Column(String(100))
+    task = Column(String(100))
+    epochs = Column(Integer)
+    model = Column(Enum('CNN', 'ResNet18', 'ResNet', '50', 'VGG19'))
+    dataset = Column(Enum('MINIST', 'CIFAR10', 'CFIFAR100'))
+    aggregation_approach = Column(Enum('FedSGD', 'FedAVG'))
+    address = Column(String(50))
+    port = Column(Integer)
+    image_name = Column(String(100))
+    container_id = Column(String(100))
+    tensorboard_port = Column(Integer)
+    tensorboard_image = Column(String(100))
+    tensorboard_container = Column(String(100))
+    global_model_port = Column(Integer)
+    global_model_container = Column(String(100))
+    link = Column(String(100))
+
+class InternalMessage(Base):
+    __tablename__ = 'internal_message'
+
+    id = Column(Integer, primary_key=True, index=True)
+    receiver = Column(Integer, ForeignKey('users.id'))
+    sender = Column(Integer, ForeignKey('users.id'))
+    title = Column(String(100))
+    content = Column(Text)
+    have_read = Column(Boolean, default=False)
+    send_at = Column(DateTime, default=datetime.now())
+    link = Column(String(100))

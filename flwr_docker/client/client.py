@@ -1,6 +1,9 @@
+#-*- coding:utf-8 -*-
+
 import warnings
 from collections import OrderedDict
 
+import os, glob
 import flwr as fl
 import torch
 import torch.nn as nn
@@ -9,6 +12,9 @@ from torch.utils.data import DataLoader
 from torchvision.datasets import CIFAR10
 from torchvision.transforms import Compose, Normalize, ToTensor
 from tqdm import tqdm
+import numpy as np
+
+
 
 # #############################################################################
 # 1. Regular PyTorch pipeline: nn.Module, train, test, and DataLoader
@@ -37,6 +43,11 @@ class Net(nn.Module):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         return self.fc3(x)
+
+    def save_parameters(self):
+        parameters = [val.cpu().numpy() for _, val in net.state_dict().items()]
+        # local_model_ndarrays = fl.common.parameters_to_ndarrays(parameters)
+        np.savez(f"local_model/local1-weights.npz", *parameters)
 
 
 def train(net, trainloader, epochs):
@@ -80,7 +91,6 @@ def load_data():
 net = Net().to(DEVICE)
 trainloader, testloader = load_data()
 
-
 # Define Flower client
 class FlowerClient(fl.client.NumPyClient):
     def get_parameters(self, config):
@@ -102,8 +112,26 @@ class FlowerClient(fl.client.NumPyClient):
         return loss, len(testloader.dataset), {"accuracy": accuracy}
 
 
+
+
 # Start Flower client
 fl.client.start_numpy_client(
     server_address="127.0.0.1:8080",
     client=FlowerClient(),
 )
+if not os.path.exists("./local_model"):
+    os.mkdir("./local_model")
+net.save_parameters()
+
+# def load_parameters_from_disk():
+#     # import Net
+#     list_of_files = [fname for fname in glob.glob('./local*')]
+#     latest_round_file = max(list_of_files, key=os.path.getctime)
+#     parameters = np.load(latest_round_file)
+#     params_dict = zip(net.state_dict().keys(), parameters)
+#     state_dict = OrderedDict({k: torch.tensor(parameters[v]) for k, v in params_dict})
+#     net.load_state_dict(state_dict, strict=True)
+#     return net
+#
+# net = load_parameters_from_disk()
+# print(net)

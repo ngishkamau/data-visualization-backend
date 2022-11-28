@@ -17,32 +17,34 @@
 
 # CMD [ "uvicorn", "main:app", "--reload" ]
 
-FROM  tensorflow/tensorflow:2.9.2
+# FROM  tensorflow/tensorflow:2.9.2
 # tiangolo/uvicorn-gunicorn:python3.8-alpine3.10
 
 # python3.9-alpine3.14
 
 
-RUN apt-get install -y mysql-server mysql-client gcc musl-dev libmariadb3 libmariadb-dev
+# RUN apt-get install -y mysql-server mysql-client gcc musl-dev libmariadb3 libmariadb-dev
 # mariadb-connector-c-dev
 # py3-setuptools
-RUN mkdir -p /app
+# RUN mkdir -p /app
+
+FROM python:3.9.14-slim-buster
 
 WORKDIR /app
 
-
-COPY ./requirements.txt /app/requirements.txt
-
+COPY . /app
 
 # RUN apt-get -y install default-libmysqlclient-dev
 # RUN apt-get install python-dev libfreetype6-dev
-RUN pip3 install --upgrade pip setuptools wheel \
+RUN cd /app \
+    && apt update -y \
+    && apt install -y build-essential mariadb-server libmariadb-dev \
+    && pip3 install --upgrade pip setuptools wheel \
     && python3 -m pip install --upgrade pip \
-    && pip3 install -r requirements.txt \
-    && pip install uvicorn
-
-COPY . /app
+    && pip3 install -r requirements.txt
 
 # ENTRYPOINT [ "python3" ]
 
-CMD [ "uvicorn", "--host", "0.0.0.0", "--port", "8000" , "main:app"]
+EXPOSE 8000
+
+CMD [ "uvicorn", "--host", "0.0.0.0", "--port", "8000", "main:app"]
