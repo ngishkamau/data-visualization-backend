@@ -67,7 +67,7 @@ docker build --build-arg IP=$host --build-arg PORT=$port --force-rm -t $image .
 # shellcheck disable=SC2236
 if [[ ! -n "$volume" ]]
 then
-    docker run --name=$container -d $image
+    docker run --rm  --name=$container -d $image
 else
-    docker run --name=$container -v $volume:/data:ro -d $image
+    docker run --rm  --name=$container -v $volume:/data:ro -d $image
 fi
